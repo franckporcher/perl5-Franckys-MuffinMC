@@ -1,0 +1,17 @@
+Build.PL
+Changes
+lib/Franckys/MuffinMC.pm
+Makefile.PL
+MANIFEST			This list of files
+META.json
+META.yml
+README
+t/00-load.t
+t/01-vars.t
+t/02-list.t
+t/03-string.t
+t/04-func.t
+t/manifest.t
+t/pod-coverage.t
+t/pod.t
+.gitignore
