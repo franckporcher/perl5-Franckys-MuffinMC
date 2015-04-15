@@ -6,6 +6,7 @@ use Test::Most;
 
 use Franckys::MuffinMC;
 use Franckys::Error;
+use Franckys::Trace;
 
 ##
 # Global cumulative error object

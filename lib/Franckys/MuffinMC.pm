@@ -213,22 +213,33 @@ sub def_macro {
     $REGEX{ token_marker       } = qr/([\\]*)([$macro_keys]\(|[${STRING_MARKER}${ENDTOKEN_MARKER}])/;
 }
 
-INIT {
-     def_macro(  '='  => \&macro_set_var            );
-     def_macro(  '$'  => \&macro_eval_var           );
-     def_macro(   L   => \&macro_mklist             );
-     def_macro(  '@'  => \&macro_access_list        );
-     def_macro(  '#'  => \&macro_eval_func          );
-     def_macro(  '?'  => \&macro_eval_cond          );
-     def_macro(  '*'  => \&macro_repeat             );
-     def_macro(   I   => \&macro_set_iterator       );
-     def_macro(   Q   => \&macro_set_lazy           );
-     def_macro( q(")  => \&macro_qquote             );
-     def_macro(   W   => \&macro_warning            );
-     def_macro( q(')  => \&macro_quote              );
-     def_macro(   M   => \&macro_meta_eval          );
-     def_macro(   P   => \&macro_progn              );
-     def_macro(   1   => \&macro_prog1         ,'p' );
+{
+    ##
+    # PSGI / Plack apps do not run INIT blocks :(((((
+    #
+    my $init_done = 0;
+
+    sub _init {
+        return if $init_done;
+
+        def_macro(  '='  => \&macro_set_var            );
+        def_macro(  '$'  => \&macro_eval_var           );
+        def_macro(   L   => \&macro_mklist             );
+        def_macro(  '@'  => \&macro_access_list        );
+        def_macro(  '#'  => \&macro_eval_func          );
+        def_macro(  '?'  => \&macro_eval_cond          );
+        def_macro(  '*'  => \&macro_repeat             );
+        def_macro(   I   => \&macro_set_iterator       );
+        def_macro(   Q   => \&macro_set_lazy           );
+        def_macro( q(")  => \&macro_qquote             );
+        def_macro(   W   => \&macro_warning            );
+        def_macro( q(')  => \&macro_quote              );
+        def_macro(   M   => \&macro_meta_eval          );
+        def_macro(   P   => \&macro_progn              );
+        def_macro(   1   => \&macro_prog1         ,'p' );
+
+        $init_done = 1;
+    }
 }
 
 #----------------------------------------------------------------------------
@@ -875,6 +886,9 @@ sub _f_say {
 sub muffin_eval :Export(:DEFAULT) {
     my ($string, @client_params) = @_;
     tracein($string);
+
+    # INIT
+    _init();
 
     my $final = muffin_eval_tokenstring( tokenize($string), @client_params );
 
