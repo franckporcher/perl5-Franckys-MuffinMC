@@ -1003,6 +1003,68 @@ sub cleanstring {
     return $s;
 }
 
+##
+# \@list = muffin_explain(muffin-expr);
+#
+sub muffin_explain :Export(:DEFAULT) {
+    my ($muffin_expr, @client_params) = @_;
+    tracein($muffin_expr);
+
+    # INIT
+    _init();
+
+    my @explained = muffin_explain_tokenstring( tokenize($muffin_expr), 0, @client_params );
+
+    traceout(\@explained);
+    return \@explained;
+}
+
+##
+# \@list = muffin_explain_tokenstring( $tokenstring, $depth, @client_params );
+#
+sub muffin_explain_tokenstring :Export(:DEFAULT) {
+    my ($tokenstring, $depth, @client_params) = @_;
+    tracein($tokenstring);
+
+    # INIT
+    _init();
+
+    my @explained = map { muffin_explain_token($_, $depth,  @client_params) } muffin_split_tokenstring( $tokenstring );
+
+    traceout(\@explained);
+    return \@explained;
+}
+
+##
+# $obj = muffin_explain_token( $token, $depth,  @client_params );
+#
+sub muffin_explain_token :Export(:DEFAULT) {
+    my ($token, $depth, @client_params) = @_;
+    tracein($token);
+
+    my $marker;
+    my $obj
+        = ( $token =~ m/$REGEX{eval_token}/ )
+            ? { # MACRO
+                type        => 'macro',
+                macro_start => ( $marker = $CLEANSTRING{ $3 } ),
+                macro_end   => ( $marker eq $STRING_MARKER
+                                 ? $STRING_MARKER
+                                 : ')'
+                               ),
+                value       => muffin_explain_tokenstring( $4, $depth + 1, @client_params ),
+                depth       => $depth,
+              }
+            : { # LITERAL
+                type    => 'literal',
+                value   => $token,
+                depth   => $depth,
+              }
+            ;
+
+    traceout($obj);
+    return $obj;
+}
 
 #=============================================================================
 #
