@@ -251,6 +251,9 @@ sub def_macro {
         def_macro( 'progn',       P   => \&macro_progn              );
         def_macro( 'prog1',       1   => \&macro_prog1         ,'p' );
 
+        Franckys::Error::def_error(EVAR            => 'Variable indéfinie:[%s].');
+        Franckys::Error::def_error(EFUNC           => 'Evaluation fonctionnelle:[%s].');
+
         $init_done = 1;
     }
 }
@@ -394,7 +397,7 @@ sub muffin_getval :Export(:DEFAULT) {
     tracein($varname);
 
     # Undefined variable
-    return muffin_error('EVAR', $varname)
+    return muffin_error('EVAR', $varname, @client_params)
         unless exists $MUFFIN_VARS{ $varname };
 
     my $value = $MUFFIN_VARS{ $varname };
@@ -1515,7 +1518,7 @@ sub apply_func {
                       );
             }
         ) {
-            $final = muffin_error('EFUNC', "$@")
+            $final = muffin_error('EFUNC', "$@", @$client_params)
                 if $@;
         }
     }
@@ -1565,7 +1568,7 @@ sub apply_func {
                 $final = muffin_eval_tokenstring($func, @$client_params);
             }
         ) {
-            $final = muffin_error('EFUNC', "$@")
+            $final = muffin_error('EFUNC', "$@", @$client_params)
                 if $@;
         }
 
