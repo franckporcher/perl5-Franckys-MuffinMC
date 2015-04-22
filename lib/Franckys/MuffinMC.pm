@@ -160,6 +160,12 @@ my %DEFMACRO = (
     #   M                         => \&macro_M
 );
 
+my %MACROTYPE = ( # For the syntactic colorization
+    $TOKEN_MARKER{$STRING_MARKER}   =>  'string',
+    #   M                           =>  'txxx',
+);
+
+
 # external -> internal
 my %MACROS = ();
 
@@ -180,7 +186,7 @@ my %REGEX = (
 
 # def_macro($macro, $macro_handler)
 sub def_macro {
-    my ($macro, $macro_handler, $imacro) = @_;
+    my ($macro_type, $macro, $macro_handler, $imacro) = @_;
     $imacro = $macro unless defined $imacro;
 
     die "[def_macro] 1-CHAR-MACRO SUB - Invalid arguments:[@_]"
@@ -198,6 +204,7 @@ sub def_macro {
 
     $MACROS{        $macro   } = $imacro;
     $DEFMACRO{      $imacro  } = $macro_handler;
+    $MACROTYPE{     $imacro  } = $macro_type;
     $CLEANSTRING{   $imacro  } = "$macro(";             # Idem
     $TOKEN_MARKER{ "$macro(" } = $imacro;               # For the parser / tokenizer
 
@@ -222,21 +229,21 @@ sub def_macro {
     sub _init {
         return if $init_done;
 
-        def_macro(  '='  => \&macro_set_var            );
-        def_macro(  '$'  => \&macro_eval_var           );
-        def_macro(   L   => \&macro_mklist             );
-        def_macro(  '@'  => \&macro_access_list        );
-        def_macro(  '#'  => \&macro_eval_func          );
-        def_macro(  '?'  => \&macro_eval_cond          );
-        def_macro(  '*'  => \&macro_repeat             );
-        def_macro(   I   => \&macro_set_iterator       );
-        def_macro(   Q   => \&macro_set_lazy           );
-        def_macro( q(")  => \&macro_qquote             );
-        def_macro(   W   => \&macro_warning            );
-        def_macro( q(')  => \&macro_quote              );
-        def_macro(   M   => \&macro_meta_eval          );
-        def_macro(   P   => \&macro_progn              );
-        def_macro(   1   => \&macro_prog1         ,'p' );
+        def_macro( 'defvar',     '='  => \&macro_set_var            );
+        def_macro( 'getval',     '$'  => \&macro_eval_var           );
+        def_macro( 'deflist',     L   => \&macro_mklist             );
+        def_macro( 'listval',    '@'  => \&macro_access_list        );
+        def_macro( 'func',       '#'  => \&macro_eval_func          );
+        def_macro( 'cond',       '?'  => \&macro_eval_cond          );
+        def_macro( 'multseq',    '*'  => \&macro_repeat             );
+        def_macro( 'iterator',    I   => \&macro_set_iterator       );
+        def_macro( 'lazy',        Q   => \&macro_set_lazy           );
+        def_macro( 'qquote',    q(")  => \&macro_qquote             );
+        def_macro( 'warning',     W   => \&macro_warning            );
+        def_macro( 'quote',     q(')  => \&macro_quote              );
+        def_macro( 'evalmeta',    M   => \&macro_meta_eval          );
+        def_macro( 'progn',       P   => \&macro_progn              );
+        def_macro( 'prog1',       1   => \&macro_prog1         ,'p' );
 
         $init_done = 1;
     }
@@ -1004,7 +1011,8 @@ sub cleanstring {
 }
 
 ##
-# \@list = muffin_explain(muffin-expr);
+# [explained...] = muffin_explain(muffin-expr);
+#
 #
 sub muffin_explain :Export(:DEFAULT) {
     my ($muffin_expr, @client_params) = @_;
@@ -1013,10 +1021,10 @@ sub muffin_explain :Export(:DEFAULT) {
     # INIT
     _init();
 
-    my @explained = muffin_explain_tokenstring( tokenize($muffin_expr), 0, @client_params );
+    my $explained = muffin_explain_tokenstring( tokenize($muffin_expr), 0, @client_params );
 
-    traceout(\@explained);
-    return \@explained;
+    traceout($explained);
+    return $explained;
 }
 
 ##
@@ -1042,28 +1050,134 @@ sub muffin_explain_token :Export(:DEFAULT) {
     my ($token, $depth, @client_params) = @_;
     tracein($token);
 
-    my $marker;
-    my $obj
-        = ( $token =~ m/$REGEX{eval_token}/ )
-            ? { # MACRO
-                type        => 'macro',
-                macro_start => ( $marker = $CLEANSTRING{ $3 } ),
-                macro_end   => ( $marker eq $STRING_MARKER
-                                 ? $STRING_MARKER
-                                 : ')'
-                               ),
-                value       => muffin_explain_tokenstring( $4, $depth + 1, @client_params ),
-                depth       => $depth,
+    my $obj;
+
+    if ( $token =~ m/$REGEX{eval_token}/ ) {
+        # MACRO OBJECT
+        
+        my $marker  = $CLEANSTRING{ $3 };
+        my $tt_type =   $MACROTYPE{ $3 };
+
+        if ( $marker eq $STRING_MARKER ) {
+            # STRING MACRO
+            my $tokenstring    = $4;
+            my @sets_of_values = ();
+            pos($tokenstring)  = 0;     # Just to play safe, reset \G to 0
+
+            # Special split to keep sequence of whitespaces
+            while ( $tokenstring =~ m/$REGEX{eval_string_token}/g ) {
+                push @sets_of_values, $+{value};
+            }
+
+            $obj
+                = {
+                tt_type     => $tt_type,
+                tt_start    => $STRING_MARKER,
+                tt_stop     => $STRING_MARKER,
+                tt_value    => [ map { muffin_explain_token($_, $depth + 1,  @client_params) } @sets_of_values ],
+                tt_depth    => $depth,
               }
-            : { # LITERAL
-                type    => 'literal',
-                value   => $token,
-                depth   => $depth,
+
+        }
+        else {
+            # OTHER MACRO
+            $obj
+                = {
+                tt_type     => $tt_type,
+                tt_start    => $marker,
+                tt_stop     => $ENDTOKEN_MARKER,
+                tt_value    => muffin_explain_tokenstring( $4, $depth + 1, @client_params ),
+                tt_depth    => $depth,
+              }
+        }
+    }
+    else {
+        # LITERAL OBJECT
+        $obj
+            = {
+                tt_type     => 'literal',
+                tt_start    => '',
+                tt_stop     => '',
+                tt_value    => $token,
+                tt_depth   => $depth,
               }
             ;
+    }
 
     traceout($obj);
     return $obj;
+}
+
+
+##
+# $rewrite = muffin_rewrite(muffin-expr);
+#
+#
+sub muffin_rewrite :Export(:DEFAULT) {
+    my ($muffin_expr, @client_params) = @_;
+    tracein($muffin_expr);
+
+    # INIT
+    _init();
+
+    my $objlist  = muffin_explain($muffin_expr, @client_params );
+    my $rewrites = muffin_rewrite_objlist($objlist);
+    my $rewrite  = "@{ $rewrites }";
+
+    traceout($rewrite);
+    return $rewrite;
+}
+
+##
+# [ $rewrite, ... ] = muffin_rewrite_objlist( [ $obj, ... ] );
+#
+sub muffin_rewrite_objlist :Export(:DEFAULT) {
+    my ($objlist) = @_;
+    tracein($objlist);
+
+    # INIT
+    _init();
+
+    my @rewrites = map { muffin_rewrite_obj($_) } @$objlist;
+
+    traceout(\@rewrites);
+    return \@rewrites;
+}
+
+##
+# $rewrite = muffin_rewrite_obj($obj);
+#
+sub muffin_rewrite_obj :Export(:DEFAULT) {
+    my ($obj) = @_;
+    tracein($obj);
+
+    my $rewrite;
+
+    if ( $obj->{tt_type} eq 'literal' ) {
+        $rewrite = $obj->{tt_value};
+    }
+    else {
+        my $rewrites = muffin_rewrite_objlist( $obj->{tt_value} );
+        my $content
+            = $obj->{tt_type} eq 'string'
+                ? do {
+                    local $"='';
+                     "@{ $rewrites }";
+                  }
+                : "@{ $rewrites }"
+                ;
+
+        $rewrite 
+            = sprintf(
+                    '%s%s%s',
+                    $obj->{tt_start},
+                    $content,
+                    $obj->{tt_stop},
+                );
+    }
+
+    traceout($rewrite);
+    return $rewrite;
 }
 
 #=============================================================================

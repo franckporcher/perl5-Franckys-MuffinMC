@@ -107,7 +107,8 @@ m_explain('test 37', q{ #("+ - * /")},                  [4]                     
 m_explain('test 38', q{ #($("+ - * /") 1 2 4 8)},       [15, -13, 64, 0.015625] );
 m_explain('test 39', q{ #($("+ - * /") 1 2 4 8)},       [15, -13, 64, 0.015625] );
 
-muffin_eval(q{ 
+m_explain('gcd',
+q{ 
     =(gcd '(    #(cmp? $(_1) 
                        $(_2) 
                        #(gcd $(_1) #(- $(_2) $(_1))) 
@@ -115,16 +116,18 @@ muffin_eval(q{
                        #(gcd #(- $(_1) $(_2)) $(_2)))
            )
     )
-});
+}, []);
 
-muffin_eval(q{ 
+m_explain('call gcd',
+q{ 
     =(gcd '(    ?(
                     #(== $(_2) 0)
                     $(_1) 
                     #(self $(_2) #(mod $(_1) $(_2))))
            )
     )
-});
+},
+[]);
 
 muffin_eval(q{ =(gcd225 '( #(gcd 225 $(_1)) ) )});
 m_explain('test 40', '#(gcd 225 3)',                    [3]);
@@ -142,7 +145,7 @@ m_explain('test 51', '#(gcd 225 225)',                  [225]);
 m_explain('test 52', '#(gcd 225 625)',                  [25]);
 m_explain('test 53', q{ #(map gcd225 3 5 9 15 25 27 45 75 125 81 135 225 625) }, [3, 5, 9, 15, 25, 9, 45, 75, 25, 9, 45, 225, 25]);
 
-muffin_eval(q{ =(fact '(?(#(le $(_1) 1) 1 #(* $(_1) #(fact #(1- $(_1))))))) });
+m_explain('fact', q{ =(fact '(?(#(le $(_1) 1) 1 #(* $(_1) #(fact #(1- $(_1))))))) }, []);
 m_explain('test 54', '#(fact 0)',                       [1]);
 m_explain('test 55', '#(fact 1)',                       [1]);
 m_explain('test 56', '#(fact 2)',                       [2]);
@@ -150,14 +153,14 @@ m_explain('test 57', '#(fact 3)',                       [6]);
 m_explain('test 58', '#(fact 4)',                       [24]);
 m_explain('test 59', '#(fact 5)',                       [120]);
 m_explain('test 60', '#(fact 6)',                       [720]);
-muffin_eval(q{ 
+m_explain('fact',q{ 
     =(fact '( ?( #(le $(_1) 1) 
                  1 
                  #(* $(_1) 
                      #(self #(1- $(_1)))))
             )
       )
-});
+},[]);
 m_explain('test 61', q{ #(map fact #(.. 1 10))},        [ 1, 2, 6, 24, 120, 720, 5040, 40320, 362880, 3628800 ]);
 
 
@@ -259,14 +262,15 @@ m_explain(
         'N___N'
 ]);
 
-muffin_eval(q{
+m_explain('ascii_art',
+q{
     =(ascii-art-1 '(
             =(* x   #(2- $(_1))
                 I   I(*($(x)" ")N)
                 foo '( #(. #(I $(x)))))
             #(say ?(#(== $(_1) 1) N "N#(map foo #(.. 1 $(_1)))N"))
     ))
-});
+},[]);
 
 m_explain('test 83', '#(ascii-art-1 1)', [
     'x',

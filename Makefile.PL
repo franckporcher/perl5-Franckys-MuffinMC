@@ -2,13 +2,13 @@
 use ExtUtils::MakeMaker;
 WriteMakefile
 (
-  'NAME' => 'Franckys::MuffinMC',
   'EXE_FILES' => [],
+  'NAME' => 'Franckys::MuffinMC',
+  'PL_FILES' => {},
+  'INSTALLDIRS' => 'site',
   'VERSION_FROM' => 'lib/Franckys/MuffinMC.pm',
   'PREREQ_PM' => {
                    'Test::More' => 0
-                 },
-  'PL_FILES' => {},
-  'INSTALLDIRS' => 'site'
+                 }
 )
 ;

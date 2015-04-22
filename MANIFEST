@@ -12,6 +12,7 @@ t/02-list.t
 t/03-string.t
 t/04-func.t
 t/05-explain.t
+t/06-rewrite.t
 t/manifest.t
 t/pod-coverage.t
 t/pod.t
