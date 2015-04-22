@@ -100,11 +100,17 @@ The following functions are exported by default :
 
 =item . B<muffin_eval()>
 
+=item . B<muffin_explain()>
+
+=item . B<muffin_rewrite()>
+
 =item . B<muffin_setvar()>
 
 =item . B<muffin_getval()>
 
 =item . B<muffin_exists_var()>
+
+=item . B<muffin_dump_vars()>
 
 =back
 
@@ -423,7 +429,7 @@ Check the existence of a MuffinMC variable.
 
 =cut
 
-sub muffin_exists_var {
+sub muffin_exists_var :Export(:DEFAULT) {
     &tracein;
     my $varname = shift;
 
@@ -444,7 +450,7 @@ Dump the MuffinMC Table symbols
 
 =cut
 
-sub muffin_dump_vars {
+sub muffin_dump_vars :Export(:DEFAULT) {
     return [ %MUFFIN_VARS ];
 }
 
@@ -1043,7 +1049,7 @@ sub muffin_explain :Export(:DEFAULT) {
 ##
 # \@list = muffin_explain_tokenstring( $tokenstring, $depth, @client_params );
 #
-sub muffin_explain_tokenstring :Export(:DEFAULT) {
+sub muffin_explain_tokenstring {
     my ($tokenstring, $depth, @client_params) = @_;
     tracein($tokenstring);
 
@@ -1059,7 +1065,7 @@ sub muffin_explain_tokenstring :Export(:DEFAULT) {
 ##
 # $obj = muffin_explain_token( $token, $depth,  @client_params );
 #
-sub muffin_explain_token :Export(:DEFAULT) {
+sub muffin_explain_token {
     my ($token, $depth, @client_params) = @_;
     tracein($token);
 
@@ -1144,7 +1150,7 @@ sub muffin_rewrite :Export(:DEFAULT) {
 ##
 # [ $rewrite, ... ] = muffin_rewrite_objlist( [ $obj, ... ] );
 #
-sub muffin_rewrite_objlist :Export(:DEFAULT) {
+sub muffin_rewrite_objlist {
     my ($objlist) = @_;
     tracein($objlist);
 
@@ -1160,7 +1166,7 @@ sub muffin_rewrite_objlist :Export(:DEFAULT) {
 ##
 # $rewrite = muffin_rewrite_obj($obj);
 #
-sub muffin_rewrite_obj :Export(:DEFAULT) {
+sub muffin_rewrite_obj {
     my ($obj) = @_;
     tracein($obj);
 
