@@ -436,6 +436,19 @@ sub muffin_exists_var {
     return $value;
 }
 
+=head2 muffin_dump_vars() [PUBLIC]
+
+ my $stash = muffin_dump_vars()
+
+Dump the MuffinMC Table symbols
+
+=cut
+
+sub muffin_dump_vars {
+    return [ %MUFFIN_VARS ];
+}
+
+
 
 #----------------------------------------------------------------------------
 # FUNCTIONS
