@@ -112,6 +112,8 @@ The following functions are exported by default :
 
 =item . B<muffin_dump_vars()>
 
+=item . B<muffin_reset_vars()>
+
 =back
 
 
@@ -458,6 +460,22 @@ sub muffin_dump_vars :Export(:DEFAULT) {
 }
 
 
+=head2 muffin_reset_vars() [PUBLIC]
+
+ my $stash = muffin_reset_vars()
+
+  Reset the MuffinMC Table symbols
+
+=cut
+
+sub muffin_reset_vars :Export(:DEFAULT) {
+    %MUFFIN_VARS  = (
+        self    => [],
+        '@'     => [],
+        '#'     => [ 0 ],
+    );
+    return muffin_dump_vars();
+}
 
 #----------------------------------------------------------------------------
 # FUNCTIONS
