@@ -24,12 +24,12 @@ package Franckys::MuffinMC;
 use 5.16.0;                                    ## no critic (ValuesAndExpressions::ProhibitVersionStrings)
 use strict;
 use warnings;
-no warnings     qw(recursion);
+no warnings             qw(recursion);
 use autodie;
 use feature             qw( switch say unicode_strings );
 
 use Const::Fast;
-use Scalar::Util qw( blessed looks_like_number );
+use Scalar::Util        qw( blessed looks_like_number );
 use Franckys::Trace;
 use Franckys::Error;
 
@@ -1061,7 +1061,7 @@ sub muffin_explain :Export(:DEFAULT) {
     # INIT
     _init();
 
-    my $explained = muffin_explain_tokenstring( tokenize($muffin_expr), 0, @client_params );
+    my $explained = muffin_explain_tokenstring( tokenize($muffin_expr, 1), 0, @client_params );
 
     traceout($explained);
     return $explained;
@@ -1077,17 +1077,17 @@ sub muffin_explain_tokenstring {
     # INIT
     _init();
 
-    my @explained = map { muffin_explain_token($_, $depth,  @client_params) } muffin_split_tokenstring( $tokenstring );
+    my @explained = map { muffin_explain_token($_, $depth, 0, @client_params) } muffin_split_tokenstring( $tokenstring );
 
     traceout(\@explained);
     return \@explained;
 }
 
 ##
-# $obj = muffin_explain_token( $token, $depth,  @client_params );
+# $obj = muffin_explain_token( $token, $depth, instring,  @client_params );
 #
 sub muffin_explain_token {
-    my ($token, $depth, @client_params) = @_;
+    my ($token, $depth, $instring, @client_params) = @_;
     tracein($token);
 
     my $obj;
@@ -1114,19 +1114,88 @@ sub muffin_explain_token {
                 tt_type     => $tt_type,
                 tt_start    => $STRING_MARKER,
                 tt_stop     => $STRING_MARKER,
-                tt_value    => [ map { muffin_explain_token($_, $depth + 1,  @client_params) } @sets_of_values ],
+                tt_value    => [ map { muffin_explain_token($_, $depth + 1, 1,  @client_params) } @sets_of_values ],
                 tt_depth    => $depth,
               }
 
         }
         else {
             # OTHER MACRO
+            my $explains = muffin_explain_tokenstring( $4, $depth + 1, 0, @client_params );
+
+            if ( @$explains ) {
+                my $n = @$explains;
+
+                given ( $tt_type ) {
+                    #  =(V ...)
+                    when ('defvar') {
+                        if ( $explains->[0]{tt_type}  eq 'literal'    
+                             && $explains->[0]{tt_value} eq '*'
+                        ){
+                            # =(* Var Val Var Val...)
+                            $explains->[0]{tt_type} = 'literal_inherit';
+
+                            my $i = 1;
+                            while ( $i < $n ) {
+                                $explains->[$i]{tt_type} = 'literal_var'
+                                    if $explains->[$i]{tt_type}  eq 'literal';
+                                $i += 2;
+                            }
+                        }
+                        else {
+                            # =(V val...)
+                            $explains->[0]{tt_type} = 'literal_var'
+                                if $explains->[0]{tt_type}  eq 'literal';
+                        }
+                    }
+
+                    #  $(V ...)
+                    when ('getval') {
+                        foreach (@$explains) {
+                            $_->{tt_type} =  'literal_var'
+                                if $_->{tt_type}  eq 'literal';
+                        }
+                    }
+
+                    #  @(V ...)
+                    when ('listval') {
+                        $explains->[0]{tt_type} = 'literal_var'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                    #  #(F ...)
+                    when ('func') {
+                        $explains->[0]{tt_type} = 'literal_func'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                    #  *(facteur ...)
+                    when ('multseq') {
+                        $explains->[0]{tt_type} = 'literal_inherit'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                    #  P(... lastform)
+                    when ('progn') {
+                        $explains->[-1]{tt_type} = 'literal_inherit'
+                            if $explains->[-1]{tt_type} eq 'literal';
+                    }
+
+                    #  1(form...)
+                    when ('prog1') {
+                        $explains->[0]{tt_type} = 'literal_inherit'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                } # given{...}
+            } # if
+ 
             $obj
                 = {
                 tt_type     => $tt_type,
                 tt_start    => $marker,
                 tt_stop     => $ENDTOKEN_MARKER,
-                tt_value    => muffin_explain_tokenstring( $4, $depth + 1, @client_params ),
+                tt_value    => $explains,
                 tt_depth    => $depth,
               }
         }
@@ -1135,11 +1204,11 @@ sub muffin_explain_token {
         # LITERAL OBJECT
         $obj
             = {
-                tt_type     => 'literal',
+                tt_type     => $instring ? 'literal_string': 'literal',
                 tt_start    => '',
                 tt_stop     => '',
                 tt_value    => $token,
-                tt_depth   => $depth,
+                tt_depth    => $depth,
               }
             ;
     }
@@ -1193,7 +1262,7 @@ sub muffin_rewrite_obj {
 
     my $rewrite;
 
-    if ( $obj->{tt_type} eq 'literal' ) {
+    if ( $obj->{tt_type} =~ /^literal/ ) {
         $rewrite = $obj->{tt_value};
     }
     else {
@@ -1242,7 +1311,7 @@ sub muffin_rewrite_obj {
 #   - EvalLazy        E(lazy facteur)         => list
 #=============================================================================
 ##
-# '(muffin_expr) - quote form -> the expr in tokenized form
+# '(muffin_expr) - return the non evaluated tokenstring, for later evaluation
 #
 # my $final = macro_quote($tokenstring);
 #
@@ -1259,7 +1328,7 @@ sub macro_quote {
 }
 
 ##
-# "(muffin_expr) - qquote a form after evaluation
+# "(muffin_expr) - qquote the result of an evaluation
 #
 # my $final = macro_qquote($tokenstring);
 #
@@ -1523,7 +1592,7 @@ sub apply_func {
     my $saved_func = $func;
 
   REDO:
-    # Builtin function
+    # Builtin function : give it the  control
     if ( $f = get_func($func) ) {
         unless (
             eval {
@@ -1552,22 +1621,18 @@ sub apply_func {
         $final = $f->( looks_like_number($factor) ? $factor : 1 );
     }
     
-    # Lazy-form   
-    elsif ( $f = muffin_isa_lazy($func) ) {
-        $final = $f->();
-    }
+    # Lazy-form & Custom function
+    elsif ( is_tokenstring($func) || ($f = muffin_isa_lazy($func)) ){
+        # Evaluate function arguments
+        @fargs = map { @{ muffin_eval_token($_, @$client_params) } } @fargs
+            unless $args_already_evaled;
 
-    # Custom function
-    elsif ( is_tokenstring($func) ){
+        # Create a shallow binding block (dynamic scope)
         my %old_bindings = (
             self => muffin_getval('self'),    # Function, to allow anonymous recursive calls
             '@'  => muffin_getval('@'),       # Arguments list
             '#'  => muffin_getval('#'),       # Number of arguments
         );
-
-        # Save old bindings (dynamic scope - shallow binding)
-        @fargs = map { @{ muffin_eval_token($_, @$client_params) } } @fargs
-            unless $args_already_evaled;
         muffin_setvar( 'self', [ $func ]       );         
         muffin_setvar( '@',    \@fargs         );
         muffin_setvar( '#',    [scalar @fargs] );
@@ -1583,7 +1648,7 @@ sub apply_func {
         # Evaluate custom function
         unless (
             eval {
-                $final = muffin_eval_tokenstring($func, @$client_params);
+                $final = muffin_isa_lazy($func) ? $f->() : muffin_eval_tokenstring($func, @$client_params);
             }
         ) {
             $final = muffin_error('EFUNC', "$@", @$client_params)
@@ -1598,7 +1663,7 @@ sub apply_func {
 
     # Redo ?
     elsif ( $redoing ) {
-        $final = [ 1 ]
+        $final = [ 1 ]      # Count number of elements
             if @fargs == 0;
     }
 
@@ -1880,19 +1945,26 @@ sub macro_prog1 {
 # PARSER & TOKENIZER
 #----------------------------------------------------------------------------
 # TOKENIZER -> Tokenize a string
-# my $token_string = tokenize($string);
+# my $token_string = tokenize($string, $explain_mode);
+my $BS = '\\';
+
 sub tokenize {
-    my $s  = shift;
+    my ($s, $explain_mode)  = @_;
+    &tracein;
 
     my $section_level   = 0;
     my $section_escaped = 0;
     my $section_quoted  = [-1];
 
-    $s =~ s{$REGEX{token_marker}}{ rec_descend($1, $2, \$section_level, \$section_escaped, $section_quoted) }ge;
+    $s =~ s{$REGEX{token_marker}}{ rec_descend($1, $2, \$section_level, \$section_escaped, $section_quoted, $explain_mode) }ge;
 
-    # Suppress \\\\
-    $s =~ s{([\\]+)}{'\\' x (length($1) / 2)}sgeo;
+    # Reduces  '\\' -> '\'
+    # and      \x   -> x
+    #   unless $explain_mode, which should conserve the quoting intact
+    $s =~ s{([\\]+)}{"$BS" x (length($1) / 2)}sge
+        unless $explain_mode;
 
+    traceout($s);
     return $s;
 }
 
@@ -1903,9 +1975,11 @@ sub rec_descend {
         $section_level,
         $section_escaped,
         $section_quoted,
+        $explain_mode
     ) = @_;
     &tracein;
 
+    my $escape_seq_orig = "$escape_seq";
     my $rewrite;
     my $escape_flag = 0;
     my $decr_flag;
@@ -1996,12 +2070,17 @@ sub rec_descend {
     }
 
     # TOKEN
-    $rewrite = ${escape_seq} . ${SEP} . ${$section_level} . $TOKEN_MARKER{$marker};
+    $rewrite 
+        = ( $explain_mode ? $escape_seq_orig : $escape_seq )
+          . $SEP 
+          . ${$section_level} 
+          . $TOKEN_MARKER{$marker}
+          ;
     goto RETURN;
 
     DONE:
     # NO TOKEN
-    $rewrite = ${escape_seq} . ${marker};
+    $rewrite = ( $explain_mode ? $escape_seq_orig : $escape_seq ) . $marker;
 
     RETURN:
     $$section_level-- if $decr_flag;
