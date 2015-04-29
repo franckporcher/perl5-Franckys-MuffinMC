@@ -501,6 +501,7 @@ my %FUNCS = (
     '#'     => \&_f_cardinal,
     map     => \&_f_map,
     grep    => \&_f_grep,
+    filter  => \&_f_grep,
     zip     => \&_f_zip,
     prog1   => \&_f_prog1,
     prog2   => \&_f_prog2,
@@ -524,7 +525,15 @@ my %FUNCS = (
     '<=>'   => \&_f_cmp,
     'cmp?'  => \&_f_progcmp,
     '<?>'   => \&_f_progcmp,
+    'not'   => \&_f_not,
+    '!'     => \&_f_not,
     say     => \&_f_say,
+    element => \&_f_element,
+    membre  => \&_f_element,
+    member  => \&_f_element,
+    pas_element => \&_f_not_element,
+    not_element => \&_f_not_element,
+    not_member  => \&_f_not_element,
 );
 
 sub get_func {
@@ -675,6 +684,36 @@ sub _f_map {
             $f = $_;
             map {
                 @{ apply_func($client_params, $f, 1, $_) }
+            } @args;
+        } @funcs;
+
+    traceout(\@final);
+    return(\@final);
+}
+
+#  #(grep FUNC list)
+sub _f_grep {
+    my ($client_params, $func, @tokens,
+        ####
+        @funcs, @final, @args, $f) = @_;
+
+    tracein($func, @tokens);
+
+    @funcs = is_token($func) ? @{ muffin_eval_token($func, @$client_params) } : $func;
+    @args  = map { @{ muffin_eval_token($_, @$client_params) } } @tokens;
+    @final
+        = map { 
+            $f = $_;
+            map {
+                my $arg   = $_;
+                my $final = apply_func($client_params, $f, 1, $arg);
+                ( $final
+                   && ( (@$final > 1)
+                        || ( @$final == 1 && $final->[0] ) 
+                      )
+                )
+                ? $arg
+                : ()
             } @args;
         } @funcs;
 
@@ -905,6 +944,43 @@ sub _f_say {
     my @final = map { @{ muffin_eval_token($_, @$client_params) } } @_;
     say $_ foreach @final;
 
+    return \@final;
+}
+
+# #(element x liste)
+# retourne l'indice (>0) dans la liste, ou 0
+sub _f_element {
+    my $client_params = shift;
+    my ($e, @l)       = map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    my $is_number     = looks_like_number($e);
+
+    my $i = 1;
+    foreach (@l) {
+        if ( $is_number ) {
+            last if $e == $_ ; 
+        }
+        else {
+            last if "$e" eq "$_"; 
+        }
+        $i++;
+    }
+    return [ $i > @l ? 0 : $i ];
+}
+
+# #(not_element x liste)
+# retourne 1 ou 0
+sub _f_not_element {
+    my $final = &_f_element;
+    return [ $final->[0] ? 0 : 1 ];
+}
+
+# #(not x)
+sub _f_not {
+    my $client_params = shift;
+    my @final
+        = map {
+            $_ ? 0 : 1;
+        } map { @{ muffin_eval_token($_, @$client_params) } } @_;
     return \@final;
 }
 

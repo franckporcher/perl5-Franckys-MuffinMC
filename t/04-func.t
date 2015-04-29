@@ -366,6 +366,20 @@ should('test 90', '#(say "MuffinMC was born in 2015 out of necessity !" )',
 
 should('test 99', '@(L() 1 2 3)', [] );
 
+should('test 100', '=(V  a e i o u y)',     [qw(a e i o u y)] );
+should('test 101', '#(element a $(V))',     [1] );
+should('test 102', '#(element e $(V))',     [2] );
+should('test 103', '#(element i $(V))',     [3] );
+should('test 104', '#(element o $(V))',     [4] );
+should('test 105', '#(element u $(V))',     [5] );
+should('test 106', '#(element y $(V))',     [6] );
+should('test 107', '#(map \'(#(element $(_1) $(V))) $(V))',     [1,2,3,4,5,6] );
+muffin_eval('=(is_element_of_V \'(#(element $(_1) $(V))))');
+muffin_eval('=(is_not_element_of_V \'(#(not #(is_element_of_V $(_1)))))');
+should('test 108', '#(map is_element_of_V $(V))',               [1,2,3,4,5,6] );
+should('test 109', '=(consonnes #(filter \'(#(not #(element $(_1) $(V)))) #(.. a z)))'       => [ 'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'x', 'z']);
+should('test 110', '=(consonnes #(filter is_not_element_of_V  #(.. a z)))'       => [ 'b', 'c', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'v', 'w', 'x', 'z']);
+
 
 #muffin_eval(q{
 #    =(ascii-art

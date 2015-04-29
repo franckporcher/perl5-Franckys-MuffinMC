@@ -4,11 +4,11 @@ WriteMakefile
 (
   'EXE_FILES' => [],
   'PL_FILES' => {},
+  'NAME' => 'Franckys::MuffinMC',
   'INSTALLDIRS' => 'site',
   'PREREQ_PM' => {
                    'Test::More' => 0
                  },
-  'NAME' => 'Franckys::MuffinMC',
   'VERSION_FROM' => 'lib/Franckys/MuffinMC.pm'
 )
 ;
