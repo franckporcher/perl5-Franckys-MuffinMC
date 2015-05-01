@@ -251,7 +251,8 @@ sub def_macro {
         def_macro( 'quote',     q(')  => \&macro_quote              );
         def_macro( 'evalmeta',    M   => \&macro_meta_eval          );
         def_macro( 'progn',       P   => \&macro_progn              );
-        def_macro( 'prog1',       1   => \&macro_prog1         ,'p' );
+        def_macro( 'prog1',       1   => \&macro_prog1         , 'p');
+        def_macro( 'splitval',    S   => \&macro_split_var     , 's');
 
         Franckys::Error::def_error(EVAR            => 'Variable indéfinie:[%s].');
         Franckys::Error::def_error(EFUNC           => 'Evaluation fonctionnelle:[%s].');
@@ -534,6 +535,7 @@ my %FUNCS = (
     pas_element => \&_f_not_element,
     not_element => \&_f_not_element,
     not_member  => \&_f_not_element,
+    assoc       => \&_f_assoc,
 );
 
 sub get_func {
@@ -981,6 +983,34 @@ sub _f_not {
         = map {
             $_ ? 0 : 1;
         } map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    return \@final;
+}
+
+# #(assoc E|L liste)
+# pour chaque clé de E|L,
+# retourne rien si la clé n'est pas dans la liste
+# ou la valeur associée
+sub _f_assoc {
+    my ($client_params, $token_key, @tokens_liste) = @_;
+
+    my @keys      = @{ muffin_eval_token($token_key, @$client_params) };
+    my @liste     = map { @{ muffin_eval_token($_, @$client_params) } } @tokens_liste;
+    my $n         = @liste - 1;
+    my @final     = ();
+
+    foreach my $key (@keys) {
+        my $i = 0;
+        while ( $i < $n ) {
+            if ( $key eq $liste[$i] ) {
+                push @final, $liste[$i+1];
+                last;
+            }
+            else {
+                $i += 2;
+            }
+        }
+    }
+
     return \@final;
 }
 
@@ -1632,6 +1662,51 @@ sub macro_eval_var {
 }
 
 
+###
+#
+# S(varname...) - Access to variable(s) value(s) + split (String destructuration)
+#
+# STR_TOKEN -> FVALUE+
+#
+# my $final = macro_eval_var($tokenstring, @client_params);
+#
+# Sémantique.
+#
+# La tokenstring est évaluée pour ramener un ou plusieurs
+# noms de variables.
+#
+# Puis chaque variable est évaluée à son tour.
+#
+# Les valeurs ramenées sont enfin concaténées entre elles afin
+# de produire une valeur finale.
+sub macro_split_var {
+    my ($tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    my @varnames_final = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
+
+    my $pattern;
+    if ( @varnames_final > 1 ) {
+        my $motif = pop @varnames_final;
+        $pattern = qr/$motif/s;
+    }
+    else {
+        $pattern = qr/$REGEX{spaces}/s;
+    }
+
+    my @values
+        = map {
+            split /$pattern/s
+        } map { @{ muffin_getval($_, @client_params) } } @varnames_final;
+
+    my $final = \@values;
+    traceout($final);
+    return $final;
+}
+
+
+
+
 ##
 #
 # #(func arg...) - Function evaluation
@@ -1772,6 +1847,10 @@ sub apply_func {
 
 ##
 # @(LIST index...) - List indexed access
+# @([ MATRIX dims dims ...) - Matrix multidimentional indexed acess
+#   At any level, * means : All elements to become
+#   new sublists to search for
+#
 #
 # Sémantique:
 #
@@ -1791,6 +1870,7 @@ sub apply_func {
 #   retourne la liste résultant de l'évaluation de l'ensemble
 #   des éléments d'entrée, soit l'équivalent de =(_X L index...)
 #   sans que la variable _X ne soit jamais définie.
+#   => constructeur de listes == L(L index...)
 #
 # my $final = macro_access_list($tokenstring)
 #
@@ -1803,45 +1883,112 @@ sub macro_access_list {
     tracein($tokenstring);
 
     # Split between list (1st composant) and indexes (the remaining # composants)
-    my ($toklist,
-        @indices,
-        ##
-        $list,
-        $final,
-        $list_found) = muffin_split_tokenstring($tokenstring);
+    my ($toklist, @indices) = muffin_split_tokenstring($tokenstring);
+
+    my ( $list,
+         $final,
+         $list_found,
+         $is_matrix_op
+    );
 
     # First argument must provide the list -- even reduced to 1 element
     #trace( sprintf('LISTE: %s', $toklist ) );
     #trace("INDEXES: ", @indices);
+  REDO:
     if ( is_token($toklist) ) {
         $list = muffin_eval_token($toklist, @client_params);
     }
     elsif ( muffin_exists_var($toklist) ) {
         $list = muffin_getval($toklist, @client_params);
     }
+    elsif ( ! $is_matrix_op && $toklist eq '[' ) {
+        $is_matrix_op = 1;
 
-    if ( defined $list ) { # Found a list to apply indexes
-        my @indexes = map { @{ muffin_eval_token($_, @client_params) } } @indices;
+        # Shift operands and start anew
+        ($toklist, @indices) = @indices;
+        goto REDO;
+    }
+    
+        # Look for '[' matrix operator 
+    if ( ! $is_matrix_op 
+         && defined $list
+         && (ref $list) eq 'ARRAY'
+         && $list->[0] eq '['
+    ) {
+        $is_matrix_op = 1;
 
-        if (@indexes) {
-            my $llength = @$list;
-            my @sublist
-                = map {
-                    !looks_like_number($_)          ? ()
-                    : ($_ > 0 && $_ <= $llength)    ? $list->[ $_ - 1 ]     # Mutiny external indexes start at 1
-                    : ($_ < 0 && $_ >= -$llength)   ? $list->[ $_     ]     # Parcours de droite à gauche avec indexes négatifs
-                    : ()
-                } @indexes;
-            $final = \@sublist;
+        if ( @$list > 1 ) {
+            # Simply shift the list
+            shift @$list;
         }
         else {
-            $final = $list
+            # Shift operands and start anew
+            ($toklist, @indices) = @indices;
+            goto REDO;
         }
     }
-    else { # in @(L...)
-           # L is neither a functional form nor
-           # a valid variable.
-           # We return the list of all args evaled
+
+    if ( defined $list
+         && (ref $list) eq 'ARRAY'
+    ) { # Found a real list to apply indexes to
+
+        if ( @indices == 0 ) {
+            $final = $list;
+        }
+
+        # Matrix access
+        elsif ( $is_matrix_op ) {
+            my @master = ( $list );
+
+            foreach my $token ( @indices ) {
+                # indices d'extraction de la dimension
+                #    (on peut extraire plusieurs éléments à chaque niveau
+                #     y inclus mutliple fois '*')
+                my @dims = @{ muffin_eval_token($token, @client_params) };
+
+                # Extraction de l'indice pour chaque vecteur de @master
+                # Avec déréférencement automatique à chaque niveau
+                @master
+                    = map {
+                        my $list = $_;
+
+                        map {
+                            my $dim = $_;
+
+                              (ref $list) ne 'ARRAY'        ?  $list                # Point fixe : l'élément n'est plus un ensemble
+                            : $dim eq '*'                   ? @$list                # On extrait tous les éléments
+                            : !looks_like_number($dim)      ? ()                    # On ignore les indices non numériques
+                            : ($dim > 0 && $dim <= @$list)  ? $list->[ $dim - 1 ]   # Indice positif > 0 (Mutiny external indexes start at 1)
+                            : ($dim < 0 && $dim >= -@$list) ? $list->[ $dim     ]   # Indice négatif pour une parcours de droite à gauche
+                            : ()                                                    # On ignore les indices nuls
+                            ;
+                        } @dims
+                    } @master;
+            }
+
+            $final = \@master;
+        }
+
+        # List access
+        else {
+            my $n = @$list;
+
+            my @sublist
+                = map {
+                    !looks_like_number($_)  ? ()
+                    : ($_ > 0 && $_ <= $n)  ? $list->[ $_ - 1 ]     # Mutiny external indexes start at 1
+                    : ($_ < 0 && $_ >= -$n) ? $list->[ $_     ]     # Parcours de droite à gauche avec indexes négatifs
+                    : ()                                            # On ignore les indices nuls
+                  } map { 
+                    @{ muffin_eval_token($_, @client_params) } 
+                  } @indices;
+
+            $final = \@sublist;
+        }
+    }
+    else { # => @( e1... ) or @([ e1 ... )
+           # e1 is neither a functional form nor a valid variable.
+           # We return the list of all args evaled, like L(...)
         $final = muffin_eval_tokenstring($tokenstring, @client_params);
     }
 
@@ -1903,7 +2050,8 @@ sub macro_set_var {
 }
 
 ###
-# L("a b" c "d e" ...) - make list from parameters
+# L( a b c)  - make list from parameters
+# L([ L([a b c) L([d e f) L([ 1 2 3)) - makes a 3x3 matrix list from parameters [[a b c][d e f][1 2 3]]
 #
 # To be used in constructs like "a L(1 2 3) c" 
 #
@@ -1915,6 +2063,11 @@ sub macro_mklist {
     tracein($tokenstring);
 
     my $final = muffin_eval_tokenstring($tokenstring, @client_params);
+
+    if ( @$final > 1 && $final->[0] eq '[' ){
+        shift @$final;
+        $final = [ $final ];
+    }
 
     traceout($final);
     return $final;
