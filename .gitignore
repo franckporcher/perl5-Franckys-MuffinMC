@@ -16,3 +16,8 @@ pod2htm*.tmp
 pm_to_blib
 Franckys-MuffinMC-*
 Franckys-MuffinMC-*.tar.gz
+.perlmuffinmc.config
+.perlmuffinmc.install
+.perlmuffinmc.midinstall
+.perlmuffinmc.postinstall
+.perlmuffinmc.submodules
