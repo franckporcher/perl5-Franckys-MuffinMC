@@ -50,8 +50,8 @@ should('test 7',    '"1 #(. a " $(foo) " b) 2"',                    [ '1 a foo  
 should('test 8',    '"1 $(foo) 2"',                                 [ '1 foo 2', '1 bar 2']);
 should('test 9',    '"1 #(.$(foo)) 2"',                             [ '1 foobar 2']);
 should('test 10',   '"1 #(." $(foo) ") 2"',                         [ '1  foo  bar  2']);
-should('test 11',   '"1 \L(a "$(foo)" b) 2"',                       ['1 L(a "$(foo)" b) 2']);
-should('test 12',   '"1 \L(a  $(foo)  b) 2"',                       ['1 L(a  $(foo)  b) 2']);
+should('test 11',   '"1 ,L(a "$(foo)" b) 2"',                       ['1 L(a "$(foo)" b) 2']);
+should('test 12',   '"1 ,L(a  $(foo)  b) 2"',                       ['1 L(a  $(foo)  b) 2']);
 
 should('test 13',   '#(+ 0 1 2 3 4 5 6 7 8 9)',                     [45]);
 should('test 14',   q{ #(map '(a) 0 1 2 3 4 5 6 7 8 9)},            [qw(a a a a a a a a a a)]);
@@ -71,7 +71,7 @@ should('test 22',   q{#(map '(#(* $(_1) $(_1)))  #(.. 1 10))},      [qw(1 4 9 16
 should('test 23',   '=(consonnes  c g m)',                          [qw(c g m)] );
 should('test 24',   '=(voyelles   a e i o u y)',                    [qw(a e i o u y)]);
 
-muffin_eval(        q{ =(cv '( #(. @(consonnes $(_1)) \$(voyelles) ) )) });
+muffin_eval(        q{ =(cv '( #(. @(consonnes $(_1)) ,$(voyelles) ) )) });
 should('test 25',   '#(map $(cv) #(.. 1 #(consonnes)))',                           ['c$(voyelles)', 'g$(voyelles)', 'm$(voyelles)']);
 should('test 26',   '#(. #(map $(cv) #(.. 1 #(consonnes))))',                      ['c$(voyelles)g$(voyelles)m$(voyelles)']);
 should('test 27',   '=(formule "( #(. #(map $(cv) #(.. 1 #(consonnes))))))',       ['"c$(voyelles)g$(voyelles)m$(voyelles)"']);
@@ -82,8 +82,8 @@ should('test 28a',  '#(eval $(formule))',                                       
 should('test 28b',  'M($(formule))',                                              $acronymes);
 
 # THE GOOD VERSION HERE
-should('test 29a',  q{  #(eval "( #(map   '(#(. @(consonnes $(_1)) \$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
-should('test 29b',  q{  M( "( #(map   '(#(. @(consonnes $(_1)) \$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
+should('test 29a',  q{  #(eval "( #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
+should('test 29b',  q{  M( "( #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
 
 
 should('test 30', q{ #(a b c d)},                    ['a']                   );

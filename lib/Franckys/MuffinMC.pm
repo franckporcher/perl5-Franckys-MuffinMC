@@ -148,6 +148,7 @@ comprehensive messages.
 const my $STRING_MARKER     => '"';
 const my $ENDTOKEN_MARKER   => ')',
 const my $SEP               => "\0";
+const my $BS                => ',';
 
 my %TOKEN_MARKER = ( # For the parser only
     $STRING_MARKER      => 'S',
@@ -186,10 +187,11 @@ my %REGEX = (
     trailing_spaces         => qr/[[:space:]]+$/s,
     spaces                  => qr/[[:space:]]+/s,
     eval_token              => qr/^($SEP(\d+)([$defmacro_keys])(.*?)$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})$/s,
+    split_pragma            => qr/^[[:space:]]*($SEP(\d+)([$defmacro_keys])(.*?)$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})(.*)$/s,
     split_token             => qr/($SEP(\d+)[$defmacro_keys].*?$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})/s,
     cleanstring             => qr/$SEP\d+([$cleanstring_keys])/s,
     eval_string_token       => qr/(?<value>$SEP(\d+)[$defmacro_keys].*?$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})|(?<value>[^$SEP]+)/s,
-    token_marker            => qr/([\\]*)([$macro_keys]\(|[${STRING_MARKER}${ENDTOKEN_MARKER}])/,
+    token_marker            => qr/([$BS]*)([$macro_keys]\(|[${STRING_MARKER}${ENDTOKEN_MARKER}])/,
 );
 
 # def_macro($macro, $macro_handler)
@@ -223,9 +225,10 @@ sub def_macro {
 
     $REGEX{ eval_token         } = qr/^($SEP(\d+)([$defmacro_keys])(.*?)$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})$/s;
     $REGEX{ split_token        } = qr/($SEP(\d+)[$defmacro_keys].*?$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})/s;
+    $REGEX{ split_pragma       } = qr/^[[:space:]]*($SEP(\d+)([$defmacro_keys])(.*?)$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})(.*)$/s;
     $REGEX{ cleanstring        } = qr/$SEP\d+([$cleanstring_keys])/s;
     $REGEX{ eval_string_token  } = qr/(?<value>$SEP(\d+)[$defmacro_keys].*?$SEP\2$TOKEN_MARKER{$ENDTOKEN_MARKER})|(?<value>[^$SEP]+)/s;
-    $REGEX{ token_marker       } = qr/([\\]*)([$macro_keys]\(|[${STRING_MARKER}${ENDTOKEN_MARKER}])/;
+    $REGEX{ token_marker       } = qr/([$BS]*)([$macro_keys]\(|[${STRING_MARKER}${ENDTOKEN_MARKER}])/;
 }
 
 {
@@ -253,6 +256,8 @@ sub def_macro {
         def_macro( 'progn',       P   => \&macro_progn              );
         def_macro( 'prog1',       1   => \&macro_prog1         , 'p');
         def_macro( 'splitval',    S   => \&macro_split_var     , 's');
+        def_macro( 'associer',    A   => \&macro_associer           );
+        def_macro( 'pragma',     '!'  => \&macro_pragma             );
 
         Franckys::Error::def_error(EVAR            => 'Variable indéfinie:[%s].');
         Franckys::Error::def_error(EFUNC           => 'Evaluation fonctionnelle:[%s].');
@@ -536,6 +541,7 @@ my %FUNCS = (
     not_element => \&_f_not_element,
     not_member  => \&_f_not_element,
     assoc       => \&_f_assoc,
+    'assoc*'    => \&_f_assoc_split,
 );
 
 sub get_func {
@@ -986,23 +992,65 @@ sub _f_not {
     return \@final;
 }
 
-# #(assoc E|L liste)
-# pour chaque clé de E|L,
-# retourne rien si la clé n'est pas dans la liste
-# ou la valeur associée
+##
+# #(assoc E aliste)
+# pour chaque e de E
+# retourne :
+#   . la valeur associée dans la aliste, utilisant e comme clé
+#   . rien si e n'est pas une clé de la aliste
+#
+# La dernière clé de la aliste peut être '*', qui signifie défaut
+# Retourner alors la valeur associée
+#
 sub _f_assoc {
-    my ($client_params, $token_key, @tokens_liste) = @_;
+    my ($client_params, $token_key, @token_alist) = @_;
 
-    my @keys      = @{ muffin_eval_token($token_key, @$client_params) };
-    my @liste     = map { @{ muffin_eval_token($_, @$client_params) } } @tokens_liste;
-    my $n         = @liste - 1;
+    my @keys  = @{ muffin_eval_token($token_key, @$client_params) };
+    my @alist = map { @{ muffin_eval_token($_, @$client_params) } } @token_alist;
+
+    return _f_assoc_common(\@keys, \@alist);
+}
+
+##
+# #(assoc* E aliste)
+# pour chaque e de E
+# retourne :
+#   . déstructurer e en mots
+#   . la valeur associée dans la aliste, utilisant e comme clé
+#   . rien si e n'est pas une clé de la aliste
+#
+# La dernière clé de la aliste peut être '*', qui signifie défaut
+# Retourner alors la valeur associée
+#
+sub _f_assoc_split {
+    my ($client_params, $token_key, @token_alist) = @_;
+
+    my @keys
+        = map { split /$REGEX{spaces}/s
+          } @{ muffin_eval_token($token_key, @$client_params) };
+
+    my @alist
+        = map { @{ muffin_eval_token($_, @$client_params) } 
+          } @token_alist;
+
+    return _f_assoc_common(\@keys, \@alist);
+}
+
+sub _f_assoc_common {
+    my ($keys, $alist) = @_;
+
+    my $n         = @$alist;
+    my $n_1       = $n - 1;
+    my $n_2       = $n - 2;
     my @final     = ();
 
-    foreach my $key (@keys) {
+    foreach my $key (@$keys) {
         my $i = 0;
-        while ( $i < $n ) {
-            if ( $key eq $liste[$i] ) {
-                push @final, $liste[$i+1];
+        while ( $i < $n_1 ) {
+            if ( $key eq $alist->[$i]
+                 || ( $i == $n_2 && $alist->[$i] eq '*' )
+            ) {
+                push @final, $alist->[$i+1];
                 last;
             }
             else {
@@ -1013,6 +1061,7 @@ sub _f_assoc {
 
     return \@final;
 }
+
 
 #----------------------------------------------------------------------------
 # MUFFIN EVALUATOR
@@ -1075,15 +1124,57 @@ sub muffin_eval_token {
     my ($token, @client_params) = @_;
     tracein($token);
 
-    my $final
-        = ( $token =~ m/$REGEX{eval_token}/ )
-            ? $DEFMACRO{$3}->($4, @client_params)   # TOKENSTRING
-            : [$token]                              # LITERAL
-            ;
+    my $final;
+
+    if ( $token =~ m/$REGEX{eval_token}/ ) {
+        # TOKENSTRING
+        my $macro            = $3;
+        my $data_tokenstring = $4;
+        my $pragma;
+
+        ($pragma, $data_tokenstring) = muffin_extract_pragma($data_tokenstring, @client_params);
+
+        $final = $DEFMACRO{$macro}->($pragma, $data_tokenstring, @client_params);
+    }
+    else {
+        # LITERAL
+        $final = [$token]
+    }
 
     traceout($final);
     return $final;
 }
+
+##
+# my ($pragma, $tokenstring) =  muffin_extract_pragma($tokenstring, @client_params);
+#
+# STR_TOKEN  ---> prgama_href + STR_TOKEN
+#
+# Extrait et evalue le prgama en première position de la token string
+sub  muffin_extract_pragma {
+    my ($tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    my @final;
+
+    if ( $tokenstring =~ m/$REGEX{split_pragma}/
+          && token_type($3) eq 'pragma'
+    ) {
+        my $pragma_tokenstring  = $1;    # Extracted pragma
+        my $data_tokenstring    = $5;    # Rest
+
+        my %pragma = @{ muffin_eval_token($pragma_tokenstring, @client_params) };
+
+        @final = (\%pragma, $data_tokenstring);
+    }
+    else {
+        @final = ({}, $tokenstring);
+    }
+
+    traceout(@final);
+    return @final;
+}
+
 
 ##
 # my @tokens = muffin_split_tokenstring($token_string);
@@ -1135,9 +1226,10 @@ sub muffin_split_tokenstring {
     return @tokens;
 }
 
-
 ##
 # $bool = is_token($string);
+#
+# Fast/unprecise lookup
 sub is_token {
     return substr($_[0], 0, 1) eq $SEP;
 }
@@ -1147,6 +1239,23 @@ sub is_token {
 sub is_tokenstring {
     return index($_[0], $SEP) > -1;
 }
+
+##
+# my $token_type | undef = token_type(token|macro)
+#
+# slow/precise lookup
+sub token_type {
+    my $s = shift;
+
+    return exists $MACROTYPE{ $s }           ? $MACROTYPE{ $s }
+         : (
+             ($s =~ m/$REGEX{eval_token}/)
+             && (exists $MACROTYPE{ $3 })
+           )                                 ? $MACROTYPE{ $3 }
+         : undef
+         ;
+}
+
 
 sub cleanstring {
     my $s = shift;
@@ -1262,6 +1371,14 @@ sub muffin_explain_token {
                                 if $_->{tt_type}  eq 'literal';
                         }
                     }
+                    
+                    #  S(V ...)
+                    when ('splitval') {
+                        foreach (@$explains) {
+                            $_->{tt_type} =  'literal_var'
+                                if $_->{tt_type}  eq 'literal';
+                        }
+                    }
 
                     #  @(V ...)
                     when ('listval') {
@@ -1290,6 +1407,13 @@ sub muffin_explain_token {
                     #  1(form...)
                     when ('prog1') {
                         $explains->[0]{tt_type} = 'literal_inherit'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                    #  A(form...)
+                    when ('associer') {
+                        # A(V ...)
+                        $explains->[0]{tt_type} = 'literal_var'
                             if $explains->[0]{tt_type} eq 'literal';
                     }
 
@@ -1424,7 +1548,7 @@ sub muffin_rewrite_obj {
 # Useful for #(map 'FUNC ...)
 #
 sub macro_quote {
-    my $tokenstring = shift;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my $final = [$tokenstring];
@@ -1440,12 +1564,53 @@ sub macro_quote {
 #
 # Useful for meta-evaluation of a MuffinMC expression #(eval 'FUNC ...)
 #
+# PRAGMAS
+#   :quote       <bool> vrai par défaut
+#   :quote-with  value   (double quote by default) Defines the left/right quotes
+#   :quote-left  value   (double quote by default)
+#   :quote-right value   (double quote by default)
+#   :join-with   value   (empty string by default)
+#
 sub macro_qquote {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
-    local $" ='';
-    my $final = [ sprintf('"%s"', "@{ muffin_eval_tokenstring($tokenstring, @client_params) }") ];
+    # Pragmas
+    my $quote_flag 
+        = exists $pragma->{quote}
+          ? $pragma->{quote}
+          : 1
+          ;
+    my $quote_left 
+        = exists $pragma->{'quote-left'}
+          ? $pragma->{'quote-left'}
+          : '"'
+          ;
+    my $quote_right 
+        = exists $pragma->{'quote-right'}
+          ? $pragma->{'quote-right'}
+          : '"'
+          ;
+    if ( exists $pragma->{'quote-with'} ) {
+        $quote_left
+            = $quote_right 
+            = $pragma->{'quote-with'};
+    }
+    my $join_with 
+        = exists $pragma->{'join-with'}
+          ? $pragma->{'join-with'}
+          : ''
+          ;
+
+    local $" = $join_with;
+    my $final 
+        = [ 
+            sprintf(    '%s%s%s', 
+                        $quote_flag ? $quote_left : '',
+                        "@{ muffin_eval_tokenstring($tokenstring, @client_params) }",
+                        $quote_flag ? $quote_right : '',
+            )
+          ];
 
     traceout($final);
     return $final;
@@ -1461,7 +1626,7 @@ sub macro_qquote {
 # E(Q(expr)) == Expr
 # 
 sub macro_set_lazy {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my $final
@@ -1494,7 +1659,7 @@ sub muffin_isa_lazy {
 # for 3rd phase evaluation
 #
 sub macro_set_iterator {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my @tokens = muffin_split_tokenstring($tokenstring);    # FIFO
@@ -1580,7 +1745,7 @@ sub muffin_isa_iterator {
 # au niveau des litéraux.
 #
 sub eval_string {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     # Split the string into subset-values, each of one susceptible to be
@@ -1649,7 +1814,7 @@ sub get_produit_cartesien {
 # Les valeurs ramenées sont enfin concaténées entre elles afin
 # de produire une valeur finale.
 sub macro_eval_var {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my @varnames_final = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
@@ -1664,23 +1829,14 @@ sub macro_eval_var {
 
 ###
 #
-# S(varname...) - Access to variable(s) value(s) + split (String destructuration)
+# S(varname ... pattern) - Split variable values
+#                 using last value as pattern for the splitting
+#                 If no final value, will split on spaces
 #
 # STR_TOKEN -> FVALUE+
 #
-# my $final = macro_eval_var($tokenstring, @client_params);
-#
-# Sémantique.
-#
-# La tokenstring est évaluée pour ramener un ou plusieurs
-# noms de variables.
-#
-# Puis chaque variable est évaluée à son tour.
-#
-# Les valeurs ramenées sont enfin concaténées entre elles afin
-# de produire une valeur finale.
 sub macro_split_var {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my @varnames_final = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
@@ -1705,8 +1861,6 @@ sub macro_split_var {
 }
 
 
-
-
 ##
 #
 # #(func arg...) - Function evaluation
@@ -1714,7 +1868,7 @@ sub macro_split_var {
 # my $final = macro_eval_func($tokenstring)
 #
 sub macro_eval_func {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     # 1. Split the token into operator and operands
@@ -1879,7 +2033,7 @@ sub apply_func {
 #   . Invalid indexes are discarded
 #
 sub macro_access_list {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     # Split between list (1st composant) and indexes (the remaining # composants)
@@ -2002,19 +2156,22 @@ sub macro_access_list {
 #
 # my $value_ar = macro_warning($token);
 sub macro_warning {
-    my ($token, @client_params) = @_;
-    tracein($token);
-    traceout( [ $token ] );
-    return [ $token ];
+    my ($pragma, $tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    my $final = [ $tokenstring ];
+
+    traceout($final);
+    return $final;
 }
 
 ###
 # value  =(varname value) - Variable creation
-# value  =(// v1 val1 v2 val2...) - affectation en //
+# value  =(* v1 val1 v2 val2...) - affectation en //
 #
 # my $value_ar = macro_set_var($token);
 sub macro_set_var {
-    my ($tokenstring, @client_params,
+    my ($pragma, $tokenstring, @client_params,
         ####
         @tokens, $op, @rest ) = @_;
     tracein($tokenstring);
@@ -2059,7 +2216,7 @@ sub macro_set_var {
 #
 # my $value_ar = macro_mklist($token);
 sub macro_mklist {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my $final = muffin_eval_tokenstring($tokenstring, @client_params);
@@ -2080,10 +2237,10 @@ sub macro_mklist {
 #
 # my $value_ar = macro_eval_cond($token);
 sub macro_eval_cond {
-    my ($token, @client_params) = @_;
-    tracein($token);
+    my ($pragma, $tokenstring, @client_params) = @_;
+    tracein($tokenstring);
 
-    my ($cond_tok, $true_tok, $false_tok) = muffin_split_tokenstring($token);
+    my ($cond_tok, $true_tok, $false_tok) = muffin_split_tokenstring($tokenstring);
 
     my ($cond) = @{ muffin_eval_token($cond_tok, @client_params) };
 
@@ -2102,12 +2259,13 @@ sub macro_eval_cond {
     return $final;
 }
 
+
 ##
 # *(facteur_repetitif e1 ... en) - Repeat sequence
 #
 # my $final = macro_repeat($tokenstring);
 sub macro_repeat {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my ($facteur, @values) = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
@@ -2123,11 +2281,12 @@ sub macro_repeat {
     return \@final;
 }
 
+
 ##
 # M(muffinMC-expr) - Meta-evaluation
 #
 sub macro_meta_eval {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my @forms = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
@@ -2137,10 +2296,11 @@ sub macro_meta_eval {
     return $final;
 }
 
+
 ##
 # P(expr...) - Progn returns the value of the latest expr
 sub macro_progn {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my $final = [];
@@ -2151,9 +2311,10 @@ sub macro_progn {
     return $final;
 }
 
+
 # 1(expr...) - Prog1 - Returns the value of the 1st expr
 sub macro_prog1 {
-    my ($tokenstring, @client_params) = @_;
+    my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my ($expr, @exprs) = muffin_split_tokenstring($tokenstring);
@@ -2170,13 +2331,117 @@ sub macro_prog1 {
 }
 
 
+##
+# A(prefix  vtrue vfalse) - Association
+#
+# A( L(P Q...) "a b" c "d e") -> 
+#   ("Pa Pb" Pc "Pd Pe" "Qa Qb" Qc "Qd Qe" ...)
+#
+# Pragmas:
+#   :join-with <value>  Ex: :join_with :
+#
+sub macro_associer {
+    my ($pragma, $tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    # Pragmas
+    my $join_with 
+        = exists $pragma->{'join-with'}
+          ? $pragma->{'join-with'}
+          : ''
+          ;
+
+
+    my ($tok_prefixes, @tokens) = muffin_split_tokenstring($tokenstring);
+
+    my @prefixes
+        = @{ muffin_eval_token($tok_prefixes, @client_params) };
+
+    my @values 
+        = map { @{ muffin_eval_token($_, @client_params) } }
+            @tokens;
+
+    my @final
+        = map {
+            my $prefix = "${_}${join_with}";
+            map {
+                my $v = $_;
+                $v =~ s/(^|\s+)/${1}${prefix}/sg;
+                $v;
+            } @values;
+        } @prefixes;
+
+    traceout(\@final);
+    return \@final;
+}
+
+
+##
+# !( :directive_true !:directive_false :directive value...) - Pragma
+#
+# Removes directive that do not start with a ':'
+#
+# Pragmas:
+#   :true  <value>
+#   :false <value>
+#
+sub macro_pragma {
+    my ($pragma, $tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    # Pragmas
+    my $true 
+        = exists $pragma->{true}
+          ? $pragma->{true}
+          : 1
+          ;
+    my $false 
+        = exists $pragma->{false}
+          ? $pragma->{false}
+          : 0
+          ;
+
+    my @values = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
+    my %pragma = ();
+    my ($directive, $value);
+
+    while (@values) {
+        $directive = shift @values;
+
+        if ( $directive =~ /^![[:space:]]*:[^[:space:]]/s ) {
+            # Boolean negative directive =>  !:directive
+            $directive =~ s/^![[:space:]]*://s;
+            $pragma{ $directive } = $false;
+        }
+        elsif ( $directive =~ /^:[^[:space:]]/s ) {
+            $directive =~ s/^://s;
+
+            if (@values && $values[0] =~ /^![[:space:]]*:[[:space:]]/s) {
+                # 2 consecutive directives  :a :b   
+                # => First is assumed to be a positive boolean directive
+                $pragma{ $directive } = $true;
+            }
+            else {
+                # Regular directive => :directive value
+                $pragma{ $directive } = shift @values;
+            }
+        }
+        #
+        # else  { ignore value , not a directive }
+    }
+
+    my $final = [ %pragma ];
+
+    traceout($final);
+    return $final;
+}
+
+
 #----------------------------------------------------------------------------
 # PARSER & TOKENIZER
 #----------------------------------------------------------------------------
 # TOKENIZER -> Tokenize a string
 # my $token_string = tokenize($string, $explain_mode);
-my $BS = '\\';
-
 sub tokenize {
     my ($s, $explain_mode)  = @_;
     &tracein;
@@ -2190,7 +2455,7 @@ sub tokenize {
     # Reduces  '\\' -> '\'
     # and      \x   -> x
     #   unless $explain_mode, which should conserve the quoting intact
-    $s =~ s{([\\]+)}{"$BS" x (length($1) / 2)}sge
+    $s =~ s{([$BS]+)}{"$BS" x (length($1) / 2)}sge
         unless $explain_mode;
 
     traceout($s);

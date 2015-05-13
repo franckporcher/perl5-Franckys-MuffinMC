@@ -58,8 +58,8 @@ m_rewrite('test 7',    '"1 #(. a " $(foo) " b) 2"',                    [ '1 a fo
 m_rewrite('test 8',    '"1 $(foo) 2"',                                 [ '1 foo 2', '1 bar 2']);
 m_rewrite('test 9',    '"1 #(.$(foo)) 2"',                             [ '1 foobar 2']);
 m_rewrite('test 10',   '"1 #(." $(foo) ") 2"',                         [ '1  foo  bar  2']);
-m_rewrite('test 11',   '"1 \L(a "$(foo)" b) 2"',                       ['1 L(a "$(foo)" b) 2']);
-m_rewrite('test 12',   '"1 \L(a  $(foo)  b) 2"',                       ['1 L(a  $(foo)  b) 2']);
+m_rewrite('test 11',   '"1 ,L(a "$(foo)" b) 2"',                       ['1 L(a "$(foo)" b) 2']);
+m_rewrite('test 12',   '"1 ,L(a  $(foo)  b) 2"',                       ['1 L(a  $(foo)  b) 2']);
 
 m_rewrite('test 13',   '#(+ 0 1 2 3 4 5 6 7 8 9)',                     [45]);
 m_rewrite('test 14',   q{ #(map '(a) 0 1 2 3 4 5 6 7 8 9)},            [qw(a a a a a a a a a a)]);
@@ -79,7 +79,7 @@ m_rewrite('test 22',   q{#(map '(#(* $(_1) $(_1)))  #(.. 1 10))},      [qw(1 4 9
 m_rewrite('test 23',   '=(consonnes  c g m)',                          [qw(c g m)] );
 m_rewrite('test 24',   '=(voyelles   a e i o u y)',                    [qw(a e i o u y)]);
 
-muffin_eval(        q{ =(cv '( #(. @(consonnes $(_1)) \$(voyelles) ) )) });
+muffin_eval(        q{ =(cv '( #(. @(consonnes $(_1)) ,$(voyelles) ) )) });
 m_rewrite('test 25',   '#(map $(cv) #(.. 1 #(consonnes)))',                           ['c$(voyelles)', 'g$(voyelles)', 'm$(voyelles)']);
 m_rewrite('test 26',   '#(. #(map $(cv) #(.. 1 #(consonnes))))',                      ['c$(voyelles)g$(voyelles)m$(voyelles)']);
 m_rewrite('test 27',   '=(formule "( #(. #(map $(cv) #(.. 1 #(consonnes))))))',       ['"c$(voyelles)g$(voyelles)m$(voyelles)"']);
@@ -90,8 +90,8 @@ m_rewrite('test 28a',  '#(eval $(formule))',                                    
 m_rewrite('test 28b',  'M($(formule))',                                              $acronymes);
 
 # THE GOOD VERSION HERE
-m_rewrite('test 29a',  q{  #(eval "( #(map   '(#(. @(consonnes $(_1)) \$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
-m_rewrite('test 29b',  q{  M( "( #(map   '(#(. @(consonnes $(_1)) \$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
+m_rewrite('test 29a',  q{  #(eval "( #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
+m_rewrite('test 29b',  q{  M( "( #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
 
 
 m_rewrite('test 30', q{ #(a b c d)},                    ['a']                   );
