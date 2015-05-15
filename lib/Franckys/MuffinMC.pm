@@ -283,7 +283,7 @@ sub def_macro {
  my $error_msg = muffin_error(err_tag, $param, $client_obj);
 
 When defined, the client object should handle the method 
-C<Error(TAG, $varname)>  which should return an object that 
+C<set_error(TAG, $param...)>  which should return an object that 
 handles the method <as_string()> to get the error message as a valid value.
 
 By default, return our own error as a string literal
@@ -291,12 +291,12 @@ By default, return our own error as a string literal
 =cut
 
 sub muffin_error {
-    my ($tag, $param, $o) = @_;
+    my ($tag, $param, $o, @client_params) = @_;
 
     my $error;
 
-    $error = $o->Error($tag, $param)
-        if $o && ref($o) && $o->can('Error');
+    $error = $o->set_error($tag, $param, @client_params)
+        if $o && ref($o) && $o->can('set_error');
 
     $error
         =  ( $error
@@ -304,7 +304,7 @@ sub muffin_error {
             && $error->can( 'as_string' )
            )
            ? $error->as_string()
-           : Error($tag, $param)->as_string();
+           : Error($tag, $param, @client_params)->as_string();
            ;
 
     return [ $error ];
@@ -401,29 +401,44 @@ Always return a final value.
 
 sub muffin_getval :Export(:DEFAULT) {
     my ($varname, @client_params) = @_;
-
     tracein($varname);
 
-    # Undefined variable
-    return muffin_error('EVAR', $varname, @client_params)
-        unless exists $MUFFIN_VARS{ $varname };
+    my $value = [];
 
-    my $value = $MUFFIN_VARS{ $varname };
+    # Pseudo argument variable :: $(_i)
+    if ( ($varname =~ /^_(\d+)$/) && ($1 > 0) ) {
+        my $arglist = $MUFFIN_VARS{'@'};
+        $value = [ $arglist->[$1 - 1] ]
+            if $1 <= @$arglist;
+    }
 
-    # Undefined value
-    return []
-        unless defined $value;
+    # Regular variable
+    else {
 
-    # Expand functional-variable
-    $value = $value->( @client_params )
-        if ref($value) eq 'CODE';
+        # Undefined variable
+        # return muffin_error('EVAR', $varname, @client_params)
+        #    unless exists $MUFFIN_VARS{ $varname };
+        #
+        goto RETURN_UNDEF
+            unless exists $MUFFIN_VARS{ $varname };
 
-    # Expand lazy-variable
-    $value =  muffin_eval( $value, @client_params )
-        unless ref($value) eq 'ARRAY';
+        # Undefined value
+        unless ( defined($value = $MUFFIN_VARS{ $varname }) ) {
+            $value = [];
+            goto RETURN_UNDEF
+        }
 
+        # Expand functional-variable
+        $value = $value->( @client_params )
+            if ref($value) eq 'CODE';
+
+        # Expand alias (muffin expr as a string)
+        $value =  muffin_eval( $value, @client_params )
+            unless ref($value) eq 'ARRAY';
+    }
+
+  RETURN_UNDEF:
     traceout( $value );
-
     return $value;
 }
 
@@ -444,33 +459,52 @@ sub muffin_exists_var :Export(:DEFAULT) {
     &tracein;
     my $varname = shift;
 
-    my $value = exists $MUFFIN_VARS{ $varname }
-        ? $MUFFIN_VARS{ $varname }
-        : undef
-        ;
+    my $value = undef;
+
+    # Pseudo argument variable :: $(_i)
+    if ( ($varname =~ /^_(\d+)$/) && ($1 > 0) ) {
+        my $arglist = $MUFFIN_VARS{'@'};
+        $value = [ $arglist->[$1 - 1] ]
+            if $1 <= @$arglist;
+    }
+
+    # Regular variable
+    elsif ( exists $MUFFIN_VARS{ $varname } ) {
+        $value = $MUFFIN_VARS{ $varname }
+    }
 
     traceout($value);
     return $value;
 }
 
+###
+### muffin_dump_vars()
+###
+=pod 
+
 =head2 muffin_dump_vars() [PUBLIC]
 
  my $stash = muffin_dump_vars()
 
-Dump the MuffinMC Table symbols
+Dump the MuffinMC Table symbols as a hash reference
 
 =cut
 
 sub muffin_dump_vars :Export(:DEFAULT) {
-    return [ %MUFFIN_VARS ];
+    return \%MUFFIN_VARS;
 }
 
+
+###
+### muffin_reset_vars()
+###
+=pod 
 
 =head2 muffin_reset_vars() [PUBLIC]
 
  my $stash = muffin_reset_vars()
 
-  Reset the MuffinMC Table symbols
+Reset the MuffinMC Table symbols
 
 =cut
 
@@ -493,6 +527,8 @@ my %FUNCS = (
     '-'     => \&_f_minus,
     '1-'    => \&_f_minus1,
     '2-'    => \&_f_minus2,
+    '1+'    => \&_f_minus1,
+    '2+'    => \&_f_minus2,
     '/'     => \&_f_divide,
     div     => \&_f_div,
     mod     => \&_f_mod,
@@ -1758,11 +1794,17 @@ sub eval_string {
     while ( $tokenstring =~ m/$REGEX{eval_string_token}/g ) {
         my $substring = $+{value};
 
-        push @sets_of_values,
-                is_token($substring)
-                ? muffin_eval_token($substring, @client_params)
-                : [$substring]
-                ;
+        if ( is_token($substring) ) {
+            my $final = muffin_eval_token($substring, @client_params);
+            # An empty set is the neutral element for
+            # the cross-product, and thus need not
+            # be added for computation.
+            push @sets_of_values, $final
+                if @$final > 0;
+        }
+        else {
+            push @sets_of_values, [$substring];
+        }
     }
 
     my @values = get_produit_cartesien(@sets_of_values);
@@ -1829,31 +1871,36 @@ sub macro_eval_var {
 
 ###
 #
-# S(varname ... pattern) - Split variable values
-#                 using last value as pattern for the splitting
-#                 If no final value, will split on spaces
+# S(varname|value...) - Split variable values or simple values
+#                       using spaces by default.
+#
 #
 # STR_TOKEN -> FVALUE+
+#
+# Pragmas:
+#   :split-on pattern
 #
 sub macro_split_var {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
-    my @varnames_final = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
+    # Pragmas
+    my $pattern 
+        = exists $pragma->{'split-on'}
+          ? qr/$pragma->{'split-on'}/s
+          : qr/$REGEX{spaces}/s
+          ;
 
-    my $pattern;
-    if ( @varnames_final > 1 ) {
-        my $motif = pop @varnames_final;
-        $pattern = qr/$motif/s;
-    }
-    else {
-        $pattern = qr/$REGEX{spaces}/s;
-    }
+    my @varnames = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
 
     my @values
         = map {
-            split /$pattern/s
-        } map { @{ muffin_getval($_, @client_params) } } @varnames_final;
+              split /$pattern/s
+          } map { 
+                muffin_exists_var($_)
+                    ? @{ muffin_getval($_, @client_params) } 
+                    : $_
+            } @varnames;
 
     my $final = \@values;
     traceout($final);
@@ -1932,23 +1979,17 @@ sub apply_func {
         @fargs = map { @{ muffin_eval_token($_, @$client_params) } } @fargs
             unless $args_already_evaled;
 
-        # Create a shallow binding block (dynamic scope)
-        my %old_bindings = (
+        # Save actual bindings
+        my %save_binding_bloc = (
             self => muffin_getval('self'),    # Function, to allow anonymous recursive calls
             '@'  => muffin_getval('@'),       # Arguments list
             '#'  => muffin_getval('#'),       # Number of arguments
         );
+
+        # Create a shallow binding block (dynamic scope)
         muffin_setvar( 'self', [ $func ]       );         
         muffin_setvar( '@',    \@fargs         );
         muffin_setvar( '#',    [scalar @fargs] );
-
-        my $i = 1;
-        foreach my $arg (@fargs) {
-            $old_bindings{ "_$i" } = muffin_getval("_$i")
-                if muffin_exists_var( "_$i" );
-            muffin_setvar("_$i", [ $arg ] );
-            $i++;
-        }
 
         # Evaluate custom function
         unless (
@@ -1961,7 +2002,7 @@ sub apply_func {
         }
 
         # Restore old bindings
-        while ( my($var, $val) = each %old_bindings ) {
+        while ( my($var, $val) = each %save_binding_bloc ) {
             muffin_setvar($var, $val);
         }
     }
