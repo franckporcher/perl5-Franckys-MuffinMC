@@ -1668,7 +1668,8 @@ sub macro_set_lazy {
     my $final
         = [
                 bless
-                    sub { return muffin_eval_tokenstring($tokenstring, @client_params) }, # delayed evaluation
+                    # f(@client_params)
+                    sub { return muffin_eval_tokenstring($tokenstring, @_ ? @_ : @client_params) },
                     'Franckys::MuffinMC::Lazy'
           ];
 
@@ -1706,8 +1707,11 @@ sub macro_set_iterator {
           ? []
           : [
                 bless
+                    # f(factor, @client_params)
                     sub {
                         my $want = shift || 1;
+                        my @client_params = @_ ? @_ : @client_params;
+
                         tracein("(ITERATOR) ==> WANT:$want  TOKENS:@tokens  BUFFER:@buffer");
 
                         my @final = ();
@@ -1970,7 +1974,7 @@ sub apply_func {
             :                                 @{ muffin_eval_token($fargs[0], @$client_params) }
             ;
 
-        $final = $f->( looks_like_number($factor) ? $factor : 1 );
+        $final = $f->( looks_like_number($factor) ? $factor : 1, @$client_params );
     }
     
     # Lazy-form & Custom function
@@ -1994,7 +1998,9 @@ sub apply_func {
         # Evaluate custom function
         unless (
             eval {
-                $final = muffin_isa_lazy($func) ? $f->() : muffin_eval_tokenstring($func, @$client_params);
+                # On évalue la lazy dans le contexte de l'appelant, non de la
+                # fermeture initiale
+                $final = muffin_isa_lazy($func) ? $f->(@$client_params) : muffin_eval_tokenstring($func, @$client_params);
             }
         ) {
             $final = muffin_error('EFUNC', "$@", @$client_params)
