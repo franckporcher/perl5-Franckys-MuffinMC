@@ -40,15 +40,15 @@ sub should {
     no_error();
 }
 
-should('test 1',    '"(!(!:quote                           ) a b c)',   ['abc']     );
-should('test 2',    '"(!(        :join-with " "            ) a b c)',   ['"a b c"'] );
-should('test 3',    '"(!(!:quote :join-with " "            ) a b c)',   ['a b c']   );
-should('test 4',    '"(!(!:quote :join-with :              ) a b c)',   ['a:b:c']   );
-should('test 5',    '"(!(!:quote :quote-with | :join-with :) a b c)',   ['a:b:c']   );
-should('test 6',    '"(!(        :quote-with | :join-with :) a b c)',   ['|a:b:c|'] );
-should('test 7',    '"(!(        :quote-left < :quote-right > :join-with :) a b c)',   ['<a:b:c>'] );
+should('test 1',    '"(                                      a b c)',   ['a b c']   );
+should('test 2',    '"(!(:quote                            ) a b c)',   ['"a b c"'] );
+should('test 3',    '"(!(        :nospace                  ) a b c)',   ['abc']     );
+should('test 4',    '"(!(:quote  :nospace                  ) a b c)',   ['"abc"']   );
+should('test 5',    '"(!(                      :join-with :) a b c)',   ['a:b:c']   );
+should('test 6',    '"(!(:quote  :quote-with | :join-with :) a b c)',   ['|a:b:c|'] );
+should('test 7',    '"(!(:quote  :quote-left < :quote-right > :join-with :) a b c)',   ['<a:b:c>'] );
 should('test 8',
-    '=(* x.1.PID "" x.1.N un x.10.PID 1 x.10.N dix x.100.PID 10 x.100.N cent d \'(?($(_1) "#(self $("x.$(_1).PID")) "( !(!:quote :join-with "; ") $("x.$(_1).N"))" "NA")))',
+    '=(* x.1.PID "" x.1.N un x.10.PID 1 x.10.N dix x.100.PID 10 x.100.N cent d \'(?($(_1) "#(self $("x.$(_1).PID")) "( !(:join-with "; ") $("x.$(_1).N"))" "NA")))',
     [qw( x.1.PID x.1.N x.10.PID x.10.N x.100.PID x.100.N d)]
 );
 should('test 9',    '#(d 100)',  ['NA un dix cent']);
@@ -59,6 +59,68 @@ should('test 10',
 should('test 11', '#(d 100)', [ 'NOPID' ]);
 should('test 12', '=(1.PID)', []);
 should('test 13', '#(d 100)', [ 'NOPID' ]);
+should('test 14', 
+        'P(
+             =(* L     "A(MODEL= Coconut Asphalte Peace-and-Love) A(SIZE= S M L XL) A(COLOR= red blue yellow green)"
+                 LA    L( MODEL "Modèle: " SIZE "Taille: " COLOR "Couleur: ")
+                 mcont \'( "#(assoc $(_1) $(LA)) $(_2)" ) 
+                 ccont \'( "( !( :join-with ",, ") $(@) ) )
+             )
+
+             ~( !( :c-continuation ccont :m-continuation mcont) L (MODEL,)=* (SIZE,)=* (COLOR,)=* )
+         )',
+        [
+        'Modèle:  Coconut, Taille:  S, Couleur:  red',
+        'Modèle:  Coconut, Taille:  S, Couleur:  blue',
+        'Modèle:  Coconut, Taille:  S, Couleur:  yellow',
+        'Modèle:  Coconut, Taille:  S, Couleur:  green',
+        'Modèle:  Coconut, Taille:  M, Couleur:  red',
+        'Modèle:  Coconut, Taille:  M, Couleur:  blue',
+        'Modèle:  Coconut, Taille:  M, Couleur:  yellow',
+        'Modèle:  Coconut, Taille:  M, Couleur:  green',
+        'Modèle:  Coconut, Taille:  L, Couleur:  red',
+        'Modèle:  Coconut, Taille:  L, Couleur:  blue',
+        'Modèle:  Coconut, Taille:  L, Couleur:  yellow',
+        'Modèle:  Coconut, Taille:  L, Couleur:  green',
+        'Modèle:  Coconut, Taille:  XL, Couleur:  red',
+        'Modèle:  Coconut, Taille:  XL, Couleur:  blue',
+        'Modèle:  Coconut, Taille:  XL, Couleur:  yellow',
+        'Modèle:  Coconut, Taille:  XL, Couleur:  green',
+        'Modèle:  Asphalte, Taille:  S, Couleur:  red',
+        'Modèle:  Asphalte, Taille:  S, Couleur:  blue',
+        'Modèle:  Asphalte, Taille:  S, Couleur:  yellow',
+        'Modèle:  Asphalte, Taille:  S, Couleur:  green',
+        'Modèle:  Asphalte, Taille:  M, Couleur:  red',
+        'Modèle:  Asphalte, Taille:  M, Couleur:  blue',
+        'Modèle:  Asphalte, Taille:  M, Couleur:  yellow',
+        'Modèle:  Asphalte, Taille:  M, Couleur:  green',
+        'Modèle:  Asphalte, Taille:  L, Couleur:  red',
+        'Modèle:  Asphalte, Taille:  L, Couleur:  blue',
+        'Modèle:  Asphalte, Taille:  L, Couleur:  yellow',
+        'Modèle:  Asphalte, Taille:  L, Couleur:  green',
+        'Modèle:  Asphalte, Taille:  XL, Couleur:  red',
+        'Modèle:  Asphalte, Taille:  XL, Couleur:  blue',
+        'Modèle:  Asphalte, Taille:  XL, Couleur:  yellow',
+        'Modèle:  Asphalte, Taille:  XL, Couleur:  green',
+        'Modèle:  Peace-and-Love, Taille:  S, Couleur:  red',
+        'Modèle:  Peace-and-Love, Taille:  S, Couleur:  blue',
+        'Modèle:  Peace-and-Love, Taille:  S, Couleur:  yellow',
+        'Modèle:  Peace-and-Love, Taille:  S, Couleur:  green',
+        'Modèle:  Peace-and-Love, Taille:  M, Couleur:  red',
+        'Modèle:  Peace-and-Love, Taille:  M, Couleur:  blue',
+        'Modèle:  Peace-and-Love, Taille:  M, Couleur:  yellow',
+        'Modèle:  Peace-and-Love, Taille:  M, Couleur:  green',
+        'Modèle:  Peace-and-Love, Taille:  L, Couleur:  red',
+        'Modèle:  Peace-and-Love, Taille:  L, Couleur:  blue',
+        'Modèle:  Peace-and-Love, Taille:  L, Couleur:  yellow',
+        'Modèle:  Peace-and-Love, Taille:  L, Couleur:  green',
+        'Modèle:  Peace-and-Love, Taille:  XL, Couleur:  red',
+        'Modèle:  Peace-and-Love, Taille:  XL, Couleur:  blue',
+        'Modèle:  Peace-and-Love, Taille:  XL, Couleur:  yellow',
+        'Modèle:  Peace-and-Love, Taille:  XL, Couleur:  green'
+        ]
+);
+
 #trace_on();
 
 

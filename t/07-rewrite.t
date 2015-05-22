@@ -75,7 +75,7 @@ should('test 24',   '=(voyelles   a e i o u y)',                    [qw(a e i o 
 muffin_eval(        q{ =(cv '( #(. @(consonnes $(_1)) ,$(voyelles) ) )) });
 should('test 25',   '#(map $(cv) #(.. 1 #(consonnes)))',                           ['c$(voyelles)', 'g$(voyelles)', 'm$(voyelles)']);
 should('test 26',   '#(. #(map $(cv) #(.. 1 #(consonnes))))',                      ['c$(voyelles)g$(voyelles)m$(voyelles)']);
-should('test 27',   '=(formule "( #(. #(map $(cv) #(.. 1 #(consonnes))))))',       ['"c$(voyelles)g$(voyelles)m$(voyelles)"']);
+should('test 27',   '=(formule "( !(:quote :nospace) #(. #(map $(cv) #(.. 1 #(consonnes))))))',       ['"c$(voyelles)g$(voyelles)m$(voyelles)"']);
 
 my $acronymes = ['cagama','cagame','cagami','cagamo','cagamu','cagamy','cagema','cageme','cagemi','cagemo','cagemu','cagemy','cagima','cagime','cagimi','cagimo','cagimu','cagimy','cagoma','cagome','cagomi','cagomo','cagomu','cagomy','caguma','cagume','cagumi','cagumo','cagumu','cagumy','cagyma','cagyme','cagymi','cagymo','cagymu','cagymy','cegama','cegame','cegami','cegamo','cegamu','cegamy','cegema','cegeme','cegemi','cegemo','cegemu','cegemy','cegima','cegime','cegimi','cegimo','cegimu','cegimy','cegoma','cegome','cegomi','cegomo','cegomu','cegomy','ceguma','cegume','cegumi','cegumo','cegumu','cegumy','cegyma','cegyme','cegymi','cegymo','cegymu','cegymy','cigama','cigame','cigami','cigamo','cigamu','cigamy','cigema','cigeme','cigemi','cigemo','cigemu','cigemy','cigima','cigime','cigimi','cigimo','cigimu','cigimy','cigoma','cigome','cigomi','cigomo','cigomu','cigomy','ciguma','cigume','cigumi','cigumo','cigumu','cigumy','cigyma','cigyme','cigymi','cigymo','cigymu','cigymy','cogama','cogame','cogami','cogamo','cogamu','cogamy','cogema','cogeme','cogemi','cogemo','cogemu','cogemy','cogima','cogime','cogimi','cogimo','cogimu','cogimy','cogoma','cogome','cogomi','cogomo','cogomu','cogomy','coguma','cogume','cogumi','cogumo','cogumu','cogumy','cogyma','cogyme','cogymi','cogymo','cogymu','cogymy','cugama','cugame','cugami','cugamo','cugamu','cugamy','cugema','cugeme','cugemi','cugemo','cugemu','cugemy','cugima','cugime','cugimi','cugimo','cugimu','cugimy','cugoma','cugome','cugomi','cugomo','cugomu','cugomy','cuguma','cugume','cugumi','cugumo','cugumu','cugumy','cugyma','cugyme','cugymi','cugymo','cugymu','cugymy','cygama','cygame','cygami','cygamo','cygamu','cygamy','cygema','cygeme','cygemi','cygemo','cygemu','cygemy','cygima','cygime','cygimi','cygimo','cygimu','cygimy','cygoma','cygome','cygomi','cygomo','cygomu','cygomy','cyguma','cygume','cygumi','cygumo','cygumu','cygumy','cygyma','cygyme','cygymi','cygymo','cygymu','cygymy'];
 
@@ -83,8 +83,8 @@ should('test 28a',  '#(eval $(formule))',                                       
 should('test 28b',  'M($(formule))',                                              $acronymes);
 
 # THE GOOD VERSION HERE
-should('test 29a',  q{  #(eval "( #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
-should('test 29b',  q{  M( "( #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
+should('test 29a',  q{  #(eval "( !(:quote :nospace) #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
+should('test 29b',  q{  M( "( !(:quote :nospace) #(map   '(#(. @(consonnes $(_1)) ,$(voyelles)))   #(.. 1 #(consonnes)))) ) }, $acronymes);
 
 
 should('test 30', q{ #(a b c d)},                    ['a']                   );
