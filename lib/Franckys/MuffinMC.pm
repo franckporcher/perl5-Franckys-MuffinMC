@@ -778,6 +778,7 @@ my %FUNCS = (
     assoc       => \&_f_assoc,
     'assoc*'    => \&_f_assoc_split,
     ean13       => \&_f_ean13,
+    rean13      => \&_f_rean13,
     dumpvars    => \&muffin_dump_vars,
 );
 
@@ -1313,8 +1314,13 @@ sub _f_assoc_common {
 }
 
 ## 
-# #(ean13  x liste)
-# retourne un code ean13 correct, avec le check digit set (13ième digit)
+# #(ean13  field_value field_position field_length...)
+# 
+# 'field_position' starts on the left at position 0. 
+# Total length is 12 digits.
+# Missing values are padded with 0.
+#
+# => retourne un code ean13 correct, avec le check digit set (13ième digit)
 #
 sub _f_ean13 {
     my $client_params = shift;
@@ -1324,6 +1330,38 @@ sub _f_ean13 {
     # value,pos,ndigits,...
     my @ean13_buffer = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     my @l = map { @{ muffin_eval_token($_, @$client_params) } } @_;
+
+    return _ean13_common(\@ean13_buffer, @l);
+}
+
+## 
+# #(rean13  ean13 liste)
+#
+# Recalcule un ean13 après modification de certains de ses champs
+# et retourne un code ean13 correct, avec le check digit set (13ième digit).
+#
+sub _f_rean13 {
+    my $client_params = shift;
+
+    require Business::Barcode::EAN13;
+
+    # value,pos,ndigits,...
+    my ($ean13, @l) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
+
+    # Compute the initial ean13 buffer
+    my @ean13_buffer = split //, $ean13;
+
+    # Remove the check bit
+    pop @ean13_buffer;
+
+    # Compute the new ean13
+    return _ean13_common(\@ean13_buffer, @l);
+}
+
+sub _ean13_common {
+    my ($ean13_buffer, @l) = @_;
+
+    my @ean13_buffer       = @{ $ean13_buffer };
 
     my ($value, $pos, $len, $rep);
 
@@ -1354,6 +1392,7 @@ sub _f_ean13 {
 
     return [ $ean13 ];
 }
+
 
 
 #----------------------------------------------------------------------------
@@ -2067,13 +2106,13 @@ sub muffin_isa_iterator {
 # my $final = eval_string($tokenstring);
 #
 # PRAGMAS:
-#   :cross-product  <bool>  (true by default)
+#   :cp             <bool>  (true by default) Cross-Product
 #   :quote          <bool>  faux par défaut
 #   :quote-with     value   (double quote by default) Defines the left/right quotes. Implies :quote
 #   :quote-left     value   (double quote by default). Implies :quote
 #   :quote-right    value   (double quote by default). Implies :quote
 #
-#   :join-multiple-with     value   (space string by default)
+#   :join-with     value   (space string by default)
 #   :quote-multiple         <bool>  faux par défaut
 #   :quote-multiple-with    value   (double quote by default) Defines the left/right quotes. Implies :quote
 #   :quote-multiple-left    value   (double quote by default). Implies :quote
@@ -2113,7 +2152,7 @@ sub eval_string {
     tracein($tokenstring);
 
     # Pragmas
-    set_default_pragma('cross-product', 1);
+    set_default_pragma('cp', 1);
     set_default_pragma('quote',
                         0,
                         undef,
@@ -2125,7 +2164,7 @@ sub eval_string {
     set_default_pragma('quote-left' , muffin_iget_pragma('quote-with'));
     set_default_pragma('quote-right', muffin_iget_pragma('quote-with'));
 
-    set_default_pragma('join-multiple-with', ' ');
+    set_default_pragma('join-with', ' ');
     set_default_pragma('quote-multiple',
                         0,
                         undef,
@@ -2160,15 +2199,17 @@ sub eval_string {
     }
 
     my (@final, $final, $part);
-    if ( muffin_iget_pragma('cross-product') ) {
+    if ( muffin_iget_pragma('cp') ) {
+        # Default cross product
         @final = get_produit_cartesien(@sets_of_values);
     }
     else {
+        # No cross product
         $final = '';
 
         foreach $part (@sets_of_values) {
             if ( @$part > 1 ) {
-                local $" = muffin_iget_pragma('join-multiple-with');
+                local $" = muffin_iget_pragma('join-with');
                 $final
                     = sprintf( '%s%s%s%s', 
                                 $final,
@@ -3088,13 +3129,23 @@ sub macro_pattern_matching {
     my $mode_glob  = muffin_iget_pragma('mode-glob');
     my $mode_icase = muffin_iget_pragma('mode-icase');
     unless ( muffin_iget_pragma('mode-strict') ) {
-        @patterns
-            = map {
-                my $pattern = $_;
-                $pattern =~ s/\*/([^[:space:]]*)/sg
-                    if $mode_glob;
-                $mode_icase ? qr/$pattern/si : qr/$pattern/s
-              } @patterns;
+        unless(
+            eval {
+                @patterns
+                    = map {
+                        my $pattern = $_;
+                        $pattern =~ s/\*/([^[:space:]]*)/sg
+                            if $mode_glob;
+                        $mode_icase ? qr/$pattern/si : qr/$pattern/s
+                    } @patterns;
+            }
+        ) {
+            if ($@) {
+                my $err = [ "Regex error: $@" ];
+                traceout($err);
+                return $err;
+            }
+        }
     }
 
     # Save actual bindings
