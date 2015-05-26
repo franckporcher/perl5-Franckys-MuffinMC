@@ -174,7 +174,6 @@ my %MACROTYPE = ( # For the syntactic colorization
     #   M                           =>  'txxx',
 );
 
-
 # external -> internal
 my %MACROS = ();
 
@@ -242,7 +241,9 @@ sub def_macro {
 
         def_macro( 'defvar',     '='  => \&macro_set_var            );
         def_macro( 'getval',     '$'  => \&macro_eval_var           );
-        def_macro( 'deflist',     L   => \&macro_mklist             );
+        def_macro( 'deflist',     L   => \&macro_mk_list            );
+        def_macro( 'defvector',  'V'  => \&macro_mk_vector          );
+        def_macro( 'defun',      'F'  => \&macro_defun              );
         def_macro( 'listval',    '@'  => \&macro_access_list        );
         def_macro( 'func',       '#'  => \&macro_eval_func          );
         def_macro( 'cond',       '?'  => \&macro_eval_cond          );
@@ -265,6 +266,89 @@ sub def_macro {
         Franckys::Error::def_error(EFUNC           => 'Evaluation fonctionnelle:[%s].');
 
         $init_done = 1;
+    }
+}
+
+#----------------------------------------------------------------------------
+# PRAGMA
+#
+#   . Expose pragmas as var $(:pragma) or $(:@) or $(:#)
+#   . Pragmas can also be dynamically set with =(:pragma values...)
+#
+#   Pragmas have 'local' dynamic semantics :
+#   - pragmas explicitely sets join the global pragmas stack
+#     which can be modified everywhere in the scope and
+#     survive the macro scope.
+#     Explicit pragmas have the Perl 'local' semantics : global scope + 
+#     lexical alteration.
+#   - pragmas non explicitely sets live in the local pragmas
+#     stack : local scope and local alteration, like the my semantics
+#
+#----------------------------------------------------------------------------
+our %G_PRAGMA = ();
+our $E_PRAGMA = {};
+our $L_PRAGMA = {};
+
+sub muffin_exists_pragma {
+    my $p = shift;
+    return  ($p eq '#')
+            || ($p eq '@')
+            || exists($G_PRAGMA{$p}) || exists($L_PRAGMA->{$p})
+            ;
+
+}
+
+sub muffin_get_pragma {
+    my $p = shift;
+    return  
+               ($p eq '#')            ? [ scalar(keys %G_PRAGMA) + scalar(keys %$L_PRAGMA) ]
+             : ($p eq '@')            ? [ 
+                                           (map { [ $_, @{ $G_PRAGMA{$_} }   ] } sort keys %G_PRAGMA  ),
+                                           (map { [ $_, @{ $L_PRAGMA->{$_} } ] } sort keys %$L_PRAGMA ),
+                                        ]
+             : exists $E_PRAGMA->{$p} ? $G_PRAGMA{$p}
+             : exists $L_PRAGMA->{$p} ? $L_PRAGMA->{$p}
+             :                          []
+    ;
+}
+
+sub muffin_set_pragma {
+    my ($p, $v) = @_;
+
+    (exists $E_PRAGMA->{$p}  ? \%G_PRAGMA : $L_PRAGMA)->{$p} = $v
+        unless ($p eq '#') || ($p eq '@');
+
+    return $v;
+}
+
+# [INTERNAL] Return value for internal use => removed from sublist
+sub muffin_iget_pragma {
+    return "@{muffin_get_pragma(shift)}"
+}
+
+# [INTERNAL] Set pragma new $values
+sub muffin_iset_pragma {
+    my $p = shift;
+    muffin_set_pragma($p, [ @_ ]);
+}
+
+# [INTERNAL] Return values for internal use of a pragma
+sub muffin_lget_pragma {
+    return @{muffin_get_pragma(shift)}
+}
+
+# [INTERNAL] (void) set default value for pragma
+sub set_default_pragma {
+    my ($p, $default, $replacement, $cond, $forced) = @_;
+
+    if ($cond) {
+        muffin_set_pragma($p, [ $forced ])
+    }
+    elsif ( ! ( exists($E_PRAGMA->{$p}) || exists($L_PRAGMA->{$p}) ) ) {
+        muffin_set_pragma($p, [ defined $default ? $default : () ])
+    }
+    elsif ( defined $replacement ) {
+        muffin_set_pragma($p, [$replacement])
     }
 }
 
@@ -409,6 +493,16 @@ sub muffin_setvar :Export(:DEFAULT) {
         }
         $MUFFIN_VARS{'@'} = $arglist;
     }
+
+    # Pseudo pragma variable :: $(:pragma)
+    #  Pragmas are set by MuffinMC, one
+    #  cannot create new ones for they wouldn't be
+    #  of any use.
+    elsif ( ($varname =~ /^:(.*)$/) && muffin_exists_pragma($1)) {
+        muffin_set_pragma($1, $value);
+    }
+
+    # Regular var
     else {
         $MUFFIN_VARS{ $varname } = $value;
     }
@@ -446,6 +540,11 @@ sub muffin_getval :Export(:DEFAULT) {
         my $arglist = $MUFFIN_VARS{'@'};
         $value = [ $arglist->[$1 - 1] ]
             if $1 <= @$arglist;
+    }
+
+    # Pseudo pragma variable :: $(:pragma)
+    elsif ( ($varname =~ /^:(.*)$/) && muffin_exists_pragma($1)) {
+        $value = muffin_get_pragma($1);
     }
 
     # Regular variable
@@ -1324,11 +1423,50 @@ sub muffin_eval_token {
         # TOKENSTRING
         my $macro            = $3;
         my $data_tokenstring = $4;
-        my $pragma;
+        my $e_pragma;
 
-        ($pragma, $data_tokenstring) = muffin_extract_pragma($data_tokenstring, @client_params);
+        ($e_pragma, $data_tokenstring) = muffin_extract_pragma($data_tokenstring, @client_params);
 
-        $final = $DEFMACRO{$macro}->($pragma, $data_tokenstring, @client_params);
+        # Set explicit pragma
+        my $save_epragma = $E_PRAGMA;
+        $E_PRAGMA        = $e_pragma;
+
+        my $save_lpragma = $L_PRAGMA;
+        $L_PRAGMA        = {};
+
+        # Save pragmas
+        my (%save_gpragma, $p, $v);
+        if ( %$e_pragma ) { 
+
+            # Set G_PRAGMA
+            while ( ($p, $v) = each %$e_pragma ) {
+                $save_gpragma{$p} = $G_PRAGMA{$p}
+                    if exists $G_PRAGMA{$p};
+                $G_PRAGMA{$p} = $v;
+            }
+
+            trace("Set Pragma -> ", \%G_PRAGMA);
+        }
+
+        # EVAL TOKEN
+        $final = $DEFMACRO{$macro}->($e_pragma, $data_tokenstring, @client_params);
+
+        # Restore pragmas
+        if ( %$e_pragma ) { 
+            while ( ($p, $v) = each %$e_pragma ) {
+                if (exists $save_gpragma{$p}) {
+                    $G_PRAGMA{$p} =  $save_gpragma{$p}
+                }
+                else {
+                    delete $G_PRAGMA{$p};
+                }
+            }
+
+            trace("Restored Pragma -> ", \%G_PRAGMA);
+        }
+
+        $E_PRAGMA = $save_epragma;
+        $L_PRAGMA = $save_lpragma;
     }
     else {
         # LITERAL
@@ -1342,7 +1480,7 @@ sub muffin_eval_token {
 ##
 # my ($pragma, $tokenstring) =  muffin_extract_pragma($tokenstring, @client_params);
 #
-# STR_TOKEN  ---> prgama_href + STR_TOKEN
+# STR_TOKEN  ---> pragma_href + STR_TOKEN
 #
 # Extrait et evalue le prgama en première position de la token string
 sub  muffin_extract_pragma {
@@ -1358,6 +1496,10 @@ sub  muffin_extract_pragma {
         my $data_tokenstring    = $5;    # Rest
 
         my %pragma = @{ muffin_eval_token($pragma_tokenstring, @client_params) };
+
+        # Trick pragma to be compatible with muffin values
+        #   that is  { pragma => [ $final ], ... }
+        $pragma{$_} = [ $pragma{$_} ] foreach keys %pragma;
 
         @final = (\%pragma, $data_tokenstring);
     }
@@ -1539,7 +1681,7 @@ sub muffin_explain_token {
                     #  =(V ...)
                     when ('defvar') {
                         if ( $explains->[0]{tt_type}  eq 'literal'    
-                             && $explains->[0]{tt_value} eq '*'
+                             && ( $explains->[0]{tt_value} eq '*' || $explains->[0]{tt_value} eq '**')
                         ){
                             # =(* Var Val Var Val...)
                             $explains->[0]{tt_type} = 'literal_inherit';
@@ -1586,24 +1728,6 @@ sub muffin_explain_token {
                             if $explains->[0]{tt_type} eq 'literal';
                     }
 
-                    #  *(facteur ...)
-                    when ('multseq') {
-                        $explains->[0]{tt_type} = 'literal_inherit'
-                            if $explains->[0]{tt_type} eq 'literal';
-                    }
-
-                    #  P(... lastform)
-                    when ('progn') {
-                        $explains->[-1]{tt_type} = 'literal_inherit'
-                            if $explains->[-1]{tt_type} eq 'literal';
-                    }
-
-                    #  1(form...)
-                    when ('prog1') {
-                        $explains->[0]{tt_type} = 'literal_inherit'
-                            if $explains->[0]{tt_type} eq 'literal';
-                    }
-
                     #  A(form...)
                     when ('associer') {
                         # A(V ...)
@@ -1615,6 +1739,17 @@ sub muffin_explain_token {
                     when ('matching') {
                         # A(V ...)
                         $explains->[0]{tt_type} = 'literal_var'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                    #  F(form...)
+                    when ('defun') {
+                        $explains->[0]{tt_type} = 'literal_var'
+                            if $explains->[0]{tt_type} eq 'literal';
+                    }
+
+                    default {
+                        $explains->[0]{tt_type} = 'literal_inherit'
                             if $explains->[0]{tt_type} eq 'literal';
                     }
 
@@ -1759,6 +1894,25 @@ sub macro_quote {
 }
 
 ##
+# F(muffin_expr) - defines a functional body
+#
+# my $final = macro_defun($tokenstring);
+#
+# Useful for #(map F(def) ...)
+#
+# Functionaly equivalent to '(...)
+#
+sub macro_defun {
+    my ($pragma, $tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    my $final = [$tokenstring];
+
+    traceout($final);
+    return $final;
+}
+
+##
 # "(muffin_expr) - qquote the result of an evaluation
 #
 # my $final = macro_qquote($tokenstring);
@@ -1767,10 +1921,11 @@ sub macro_quote {
 #
 # PRAGMAS
 #   :quote       <bool>  faux par défaut
-#   :nospace     <bool>  faux par défaut. Vrai => join-with ''
 #   :quote-with  value   (double quote by default) Defines the left/right quotes. Implies :quote
 #   :quote-left  value   (double quote by default). Implies :quote
 #   :quote-right value   (double quote by default). Implies :quote
+#
+#   :nospace     <bool>  faux par défaut. Vrai => join-with ''
 #   :join-with   value   (space string by default)
 #
 sub macro_qquote {
@@ -1778,47 +1933,28 @@ sub macro_qquote {
     tracein($tokenstring);
 
     # Pragmas
-    my $quote_flag 
-        = exists $pragma->{quote}
-          ? $pragma->{quote}
-          : 0
-          ;
-    $quote_flag = 1
-        if exists($pragma->{'quote-left'}) || exists($pragma->{'quote-right'});
-    my $quote_left 
-        = exists $pragma->{'quote-left'}
-          ? $pragma->{'quote-left'}
-          : '"'
-          ;
-    my $quote_right 
-        = exists $pragma->{'quote-right'}
-          ? $pragma->{'quote-right'}
-          : '"'
-          ;
-    if ( exists $pragma->{'quote-with'} ) {
-        $quote_flag = 1;
-        $quote_left
-            = $quote_right 
-            = $pragma->{'quote-with'};
-    }
-    my $join_with 
-        = (exists $pragma->{'nospace'}) && $pragma->{'nospace'}
-          ? ''
-          : ' '
-          ;
-    $join_with 
-        = exists $pragma->{'join-with'}
-          ? $pragma->{'join-with'}
-          : $join_with
-          ;
+    set_default_pragma('quote',
+                        0,
+                        undef,
+                        exists($pragma->{'quote-left'})
+                            || exists($pragma->{'quote-right'})
+                            || exists($pragma->{'quote-with'}),
+                        1);
+    set_default_pragma('quote-with' , '"');
+    set_default_pragma('quote-left' , muffin_iget_pragma('quote-with'));
+    set_default_pragma('quote-right', muffin_iget_pragma('quote-with'));
+    set_default_pragma('nospace'    , 0);
+    set_default_pragma('join-with'  , muffin_iget_pragma('nospace') ? '' : ' '); # explicitely overlaps nospace setting
 
-    local $" = $join_with;
-    my $final 
+    my $final = muffin_eval_tokenstring($tokenstring, @client_params);
+
+    local $" = muffin_iget_pragma('join-with');
+    $final 
         = [ 
             sprintf(    '%s%s%s', 
-                        $quote_flag ? $quote_left : '',
-                        "@{ muffin_eval_tokenstring($tokenstring, @client_params) }",
-                        $quote_flag ? $quote_right : '',
+                        muffin_iget_pragma('quote') ? muffin_iget_pragma('quote-left') : '',
+                        "@{$final}",
+                        muffin_iget_pragma('quote') ? muffin_iget_pragma('quote-right') : '',
             )
           ];
 
@@ -2063,13 +2199,14 @@ sub macro_split_var {
     tracein($tokenstring);
 
     # Pragmas
-    my $pattern 
-        = exists $pragma->{'split-on'}
-          ? qr/$pragma->{'split-on'}/s
-          : qr/$REGEX{spaces}/s
-          ;
+    set_default_pragma('split-on', $REGEX{spaces});
 
+    # Computation
     my @varnames = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
+
+    # Split work
+    my $pattern =  muffin_iget_pragma('split-on');
+       $pattern = qr/$pattern/s;
 
     my @values
         = map {
@@ -2389,37 +2526,64 @@ sub macro_warning {
 
 ###
 # value  =(varname value) - Variable creation
-# value  =(* v1 val1 v2 val2...) - affectation en //
+# value  =(*  v1 val1 v2 val2...) - affectation en //
+# value  =(** v1 val1 v2 val2...) - affectation en sequence
+#        === =(v1 val1) =(v2 val2) ...
 #
 # my $value_ar = macro_set_var($token);
 sub macro_set_var {
     my ($pragma, $tokenstring, @client_params,
         ####
-        @tokens, $op, @rest ) = @_;
+        @tokens, $buffer, $op, $var, %bindings) = @_;
     tracein($tokenstring);
 
+    # Final values
     my @final = ();
 
-    # Lookup for // indication in 1st position
+    # Lookup for ** or *  indication in 1st position
     @tokens = muffin_split_tokenstring($tokenstring);
-    ($op, @rest) = @{ muffin_eval_token(shift @tokens, @client_params) };
+
+    # Work
+    $buffer = @tokens ? muffin_eval_token(shift @tokens, @client_params) : [];
+    $op     = shift @$buffer;
 
     if (defined $op) {
-        if ($op eq '*') {
-            my %bindings = ();
-            while (@tokens) {
-                my ($var, @values) = map { @{ muffin_eval_token($_, @client_params)} } splice @tokens, 0, 2;
-                if (defined $var) {
-                    $bindings{$var} = \@values;
-                    push @final, $var;
+        if ( (my $parallel = $op eq '*')
+             || $op eq '**'
+        ){
+            while (@tokens || @$buffer) {
+                # try hard to have at least a var
+                $buffer = muffin_eval_token(shift @tokens, @client_params)
+                    while @tokens && @$buffer == 0;
+
+                last unless @$buffer;    # no more vars to assign !
+
+                # Extract the variable name
+                $var = shift @$buffer;
+
+                # Try hard to have at least one value
+                $buffer = muffin_eval_token(shift @tokens, @client_params)
+                    if @tokens && @$buffer == 0;
+
+                # Make the assignment
+                push @final, $var;
+                if ($parallel) {
+                   $bindings{$var} = $buffer;
                 }
+                else {
+                    muffin_setvar($var, $buffer);
+                }
+                $buffer = [];
             }
-            muffin_setvar($_, $bindings{$_})
-                foreach @final;
+
+            if ( $parallel ) {
+                muffin_setvar($_, $bindings{$_})
+                    foreach @final;
+            }
         }
         else {
             # Regular affectation
-            @final = (@rest, map { @{ muffin_eval_token($_, @client_params)} } @tokens);
+            @final = (@$buffer, map { @{ muffin_eval_token($_, @client_params)} } @tokens);
             muffin_setvar($op, \@final);
         }
     }
@@ -2429,24 +2593,33 @@ sub macro_set_var {
 }
 
 ###
-# L( a b c)  - make list from parameters
-# L([ L([a b c) L([d e f) L([ 1 2 3)) - makes a 3x3 matrix list from parameters [[a b c][d e f][1 2 3]]
+# L(a b c)  - make list from parameters
 #
 # To be used in constructs like "a L(1 2 3) c" 
 #
 #   -> { 'a 1 c' 'a 2 c' 'a 3 c' }
 #
-# my $value_ar = macro_mklist($token);
-sub macro_mklist {
+# my $final = macro_mk_list($token);
+sub macro_mk_list {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     my $final = muffin_eval_tokenstring($tokenstring, @client_params);
 
-    if ( @$final > 1 && $final->[0] eq '[' ){
-        shift @$final;
-        $final = [ $final ];
-    }
+    traceout($final);
+    return $final;
+}
+
+###
+# V( a b c)  - make vector
+# V( V(a b c) V(d e f) V( 1 2 3)) - makes a 3x3 matrix list from parameters [[a b c][d e f][1 2 3]]
+#
+# my [[v...]] = macro_mk_vector($token);
+sub macro_mk_vector {
+    my ($pragma, $tokenstring, @client_params) = @_;
+    tracein($tokenstring);
+
+    my $final = [ muffin_eval_tokenstring($tokenstring, @client_params) ];
 
     traceout($final);
     return $final;
@@ -2554,44 +2727,107 @@ sub macro_prog1 {
 
 
 ##
-# A(prefix  vtrue vfalse) - Association
+# A(prefix value...) - Associer
 #
 # A( L(P Q...) "a b" c "d e") -> 
 #   ("Pa Pb" Pc "Pd Pe" "Qa Qb" Qc "Qd Qe" ...)
 #
-# Pragmas:
-#   :join-with <value>  Ex: :join_with :
-#
+# PRAGMAS
+#   :quote          <bool>  faux par défaut
+#   :quote-with     value   (double quote by default) Defines the left/right quotes. Implies :quote
+#   :quote-left     value   (double quote by default). Implies :quote
+#   :quote-right    value   (double quote by default). Implies :quote
+#   :join-with      value   ('' by default)
+#   :join-foo       value   ('' by default)
+#   :prefix         value   ('' by default)
+#   :suffix         value   ('' by default)
+#   :as-prefix      <bool>  (true  by default)
+#   :as-suffx       <bool>  (false by default)
+#   :split          <bool>  (true by default)
+#   :split-on               (\s+  by default)
 sub macro_associer {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
     # Pragmas
-    my $join_with 
-        = exists $pragma->{'join-with'}
-          ? $pragma->{'join-with'}
-          : ''
-          ;
-
+    set_default_pragma('quote',
+                        0,
+                        undef,
+                        exists($pragma->{'quote-left'})
+                            || exists($pragma->{'quote-right'})
+                            || exists($pragma->{'quote-with'}),
+                        1);
+    set_default_pragma('quote-with' , '"');
+    set_default_pragma('quote-left' , muffin_iget_pragma('quote-with'));
+    set_default_pragma('quote-right', muffin_iget_pragma('quote-with'));
+    set_default_pragma('join-with','');
+    set_default_pragma('join-foo',undef);
+    set_default_pragma('split','1');
+    set_default_pragma('split-on','[[:space:]]+');
+    set_default_pragma('prefix','');
+    set_default_pragma('suffix','');
+    set_default_pragma('as-both',0);
+    set_default_pragma('as-suffix', muffin_iget_pragma('as-both'));
+    set_default_pragma('as-prefix', muffin_iget_pragma('as-both') || !muffin_iget_pragma('as-suffix'));
 
     my ($tok_prefixes, @tokens) = muffin_split_tokenstring($tokenstring);
 
-    my @prefixes
+    # 1. The glue
+    my @glues
         = @{ muffin_eval_token($tok_prefixes, @client_params) };
+    muffin_set_pragma('prefix', \@glues)
+        if muffin_iget_pragma('as-prefix')
+           && !exists($pragma->{'prefix'});
+    muffin_set_pragma('suffix', \@glues)
+        if muffin_iget_pragma('as-suffix') 
+           && !exists($pragma->{'suffix'});
 
+    # 2. The values to be 
     my @values 
         = map { @{ muffin_eval_token($_, @client_params) } }
             @tokens;
 
+    my $join_with = muffin_iget_pragma('join-with');
+
     my @final
         = map {
-            my $prefix = "${_}${join_with}";
+            my $prefix = $_;
+
             map {
-                my $v = $_;
-                $v =~ s/(^|\s+)/${1}${prefix}/sg;
-                $v;
+                my $split_on  = muffin_iget_pragma('split-on');
+                my @subvalues = muffin_iget_pragma('split') ? split /$split_on/ : $_;
+
+                map {
+                    my $subvalue = $_;
+
+                    map {
+                        my $suffix  = $_;
+                        local $"    = muffin_iget_pragma('join-with');
+
+                        my @results = ($prefix, $subvalue, $suffix);
+                        my @joiners = muffin_lget_pragma('join-foo');
+
+                        if (@joiners) {
+                            # $e        available as $(a) or $(_1)
+                            # $pattern  available as $(b) or $(_2)
+                            my @args = @results;
+                            my $foo;
+                            @results 
+                                = map { 
+                                    $foo = $_;
+                                    @{ apply_func(\@client_params, $foo, 1, @args) }
+                                } @joiners;
+                        }
+
+                        sprintf('%s%s%s', 
+                            muffin_iget_pragma('quote') ? muffin_iget_pragma('quote-left') : '',
+                            "@results",
+                            muffin_iget_pragma('quote') ? muffin_iget_pragma('quote-right') : '',
+                        )
+                    } muffin_lget_pragma('suffix')
+                } @subvalues;
             } @values;
-        } @prefixes;
+        } muffin_lget_pragma('prefix');
 
     traceout(\@final);
     return \@final;
@@ -2601,6 +2837,7 @@ sub macro_associer {
 ##
 # !( :directive_true !:directive_false :directive value...) - Pragma
 #
+# => [ pragma value pragma value ... ]
 # Removes directive that do not start with a ':'
 #
 # Pragmas:
@@ -2612,18 +2849,14 @@ sub macro_pragma {
     tracein($tokenstring);
 
     # Pragmas
-    my $true 
-        = exists $pragma->{true}
-          ? $pragma->{true}
-          : 1
-          ;
-    my $false 
-        = exists $pragma->{false}
-          ? $pragma->{false}
-          : 0
-          ;
+    set_default_pragma('true',  1);
+    set_default_pragma('false', 0);
 
     my @values = @{ muffin_eval_tokenstring($tokenstring, @client_params) };
+
+    my $true  = muffin_iget_pragma('true' );
+    my $false = muffin_iget_pragma('false');
+
     my %pragma = ();
     my ($directive, $value);
 
@@ -2701,155 +2934,95 @@ sub macro_pattern_matching {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
-    # Matching pragmas
-    my $match_all
-        = exists $pragma->{'match-all'}
-            ? $pragma->{'match-all'}
-            : 1
-            ;
-
-    my $match_n     = 0;
-    if ( exists $pragma->{'match-n'} && ($pragma->{'match-n'} > 1) ) {
-        $match_n   = $pragma->{'match-n'};
-        $match_all = 0;
-    }
-
-    my $match_first  = 0;
-    if ( exists $pragma->{'match-first'} && $pragma->{'match-first'} ) {
-        $match_first = 1;
-        $match_all   = 0;
-        $match_n     = 0;
-    }
-    # Safe default
-    $match_all = 1
-        unless $match_first || $match_n || $match_all;
-
-    my $mode_glob
-        = exists $pragma->{'mode-glob'}
-            ? $pragma->{'mode-glob'}
-            : 1
-            ;
-
-    my $mode_icase
-        = exists $pragma->{'mode-icase'}
-            ? $pragma->{'mode-icase'}
-            : 1
-            ;
-
-    my $mode_strict = 0;
-    if ( exists $pragma->{'mode-strict'} && $pragma->{'mode-strict'} ) {
-        $mode_strict = 1;
-        $mode_glob   = 0;
-    }
-
-    # Résultats
-    my $return_match
-        = exists $pragma->{'return-match'}
-            ? $pragma->{'return-match'}
-            : 1
-            ;
-
-    my $return_bool    = 0;
-    if ( exists $pragma->{'return-bool'} && $pragma->{'return-bool'} ) {
-        $return_bool  = 1;
-        $return_match = 0;
-    }
-
-    my $return_element = 0;
-    if ( exists $pragma->{'return-element'} && $pragma->{'return-element'} ) {
-        $return_element = 1;
-        $return_match   = 0;
-        $return_bool    = 0;
-    }
-
-
-    # Safe default
-    $return_match = 1
-        unless $return_match || $return_bool || $return_element;
-
-
-    # Presentation pragmas
-    my $mode_matrix
-        = exists $pragma->{'mode-matrix'} && !$match_first
-            ? $pragma->{'mode-matrix'}
-            : 0
-            ;
-
-    my $quote_flag 
-        = exists $pragma->{quote}
-          ? $pragma->{quote}
-          : 0
-          ;
-    $quote_flag = 1
-        if exists($pragma->{'quote-left'}) || exists($pragma->{'quote-right'});
-
-    my $quote_left 
-        = exists $pragma->{'quote-left'}
-          ? $pragma->{'quote-left'}
-          : '"'
-          ;
-
-    my $quote_right 
-        = exists $pragma->{'quote-right'}
-          ? $pragma->{'quote-right'}
-          : '"'
-          ;
-
-    if ( exists $pragma->{'quote-with'} ) {
-        $quote_flag = 1;
-        $quote_left
-            = $quote_right 
-            = $pragma->{'quote-with'};
-    }
-
-    my $join_flag 
-        = exists $pragma->{join}
-          ? $pragma->{join}
-          : 0
-          ;
-    $join_flag = 1
-        if exists($pragma->{'nospace'}) || exists($pragma->{'join-with'});
-
-    my $join_with 
-        = (exists $pragma->{'nospace'}) && $pragma->{'nospace'}
-          ? ''
-          : ' '
-          ;
-
-    $join_with 
-        = exists $pragma->{'join-with'}
-          ? $pragma->{'join-with'}
-          : $join_with
-          ;
-
-
-    # Custom Matchers
-    my @matchers = ();
-    if ( exists $pragma->{'match-with'} ) {
-        my $func = $pragma->{'match-with'};
-        @matchers = is_token($func) ? @{ muffin_eval_token($func, @client_params) } : ($func);
-    }
-
-    # Custom Continuations
-    my @mcont    = ();
-    if ( exists $pragma->{'m-continuation'} ) {
-        my $func = $pragma->{'m-continuation'};
-        @mcont = is_token($func) ? @{ muffin_eval_token($func, @client_params) } : ($func);
-    }
-    my @ccont    = ();
-    if ( exists $pragma->{'c-continuation'} ) {
-        my $func = $pragma->{'c-continuation'};
-        @ccont = is_token($func) ? @{ muffin_eval_token($func, @client_params) } : ($func);
-    }
-
-    # Save actual bindings
-    my %save_binding_bloc = (
-        (muffin_exists_var('a') ? (a => muffin_getval('a')) : ()),
-        (muffin_exists_var('b') ? (b => muffin_getval('b')) : ()),
+    # PRAGMAS : number of matching
+    set_default_pragma( 'match-first', 
+                        0,
+                        undef,
+                        exists($pragma->{'match-n'}) && (muffin_iget_pragma('match-n') == 1),
+                        1,
+    );
+    set_default_pragma( 'match-n',
+                        0,
+                        undef,
+                        ( 
+                          (exists $pragma->{'match-n'} && (muffin_iget_pragma('match-n') <= 1))
+                          || muffin_iget_pragma('match-first')
+                        ),
+                        0,
+    );
+    set_default_pragma( 'match-all',
+                        undef,
+                        undef,
+                        1,
+                        !(muffin_iget_pragma('match-first') || muffin_iget_pragma('match-n')),
     );
 
+
+    # PRAGMAS : pattern semantics
+    set_default_pragma( 'mode-icase',  1);
+    set_default_pragma( 'mode-strict', 0);
+    set_default_pragma( 'mode-glob', 
+                        1,
+                        undef,
+                        muffin_iget_pragma('mode-strict'),
+                        0,
+    );
+
+    # PRAGMAS : results behaviour
+    set_default_pragma( 'return-element',  0);
+    set_default_pragma( 'return-bool',
+                        0,
+                        undef,
+                        muffin_iget_pragma('return-element'),
+                        0,
+    );
+    set_default_pragma( 'return-match',
+                        undef,
+                        undef,
+                        1,
+                        !(muffin_iget_pragma('return-element') || muffin_iget_pragma('return-bool')),
+    );
+
+    # PRAGMAS : results presentation
+    set_default_pragma('quote',
+                        0,
+                        undef,
+                        exists($pragma->{'quote-left'})
+                            || exists($pragma->{'quote-right'})
+                            || exists($pragma->{'quote-with'}),
+                        1);
+    set_default_pragma('quote-with' , '"');
+    set_default_pragma('quote-left' , muffin_iget_pragma('quote-with'));
+    set_default_pragma('quote-right', muffin_iget_pragma('quote-with'));
+    set_default_pragma('join',
+                        0,
+                        undef,
+                        exists($pragma->{'nospace'})
+                            || exists($pragma->{'join-with'}),
+                        1);
+    set_default_pragma('nospace'    , 0);
+    set_default_pragma('join-with'  , muffin_iget_pragma('nospace') ? '' : ' '); # explicitely overlaps nospace setting
+    set_default_pragma('mode-matrix',
+                        0,
+                        undef,
+                        muffin_iget_pragma('match-first'),
+                        0,
+    );
+
+    # PRAGMAS : Custom Matchers
+    set_default_pragma('match-with', undef);
+
+    # PRAGMAS : EveryMatch custom Continuations
+    set_default_pragma('m-continuation', undef);
+
+    # PRAGMAS : EveryCycle custom Continuations
+    #   (a cycle runs all patterns against ONE element)
+    set_default_pragma('c-continuation', undef);
+
+    # Split elements from patterns
     my ($toklist, @tok_patterns) = muffin_split_tokenstring($tokenstring);
 
+    # Compute elements and patterns
     my @elements;
     if ( is_token($toklist) ) {
         @elements = @{ muffin_eval_token($toklist, @client_params) }
@@ -2861,12 +3034,15 @@ sub macro_pattern_matching {
         @elements = ($toklist);
     }
 
+    # Compute patterns
     my @patterns 
         = map { @{ muffin_eval_token($_, @client_params) } }
             @tok_patterns;
 
     # Compile patterns (glob mode / icase mode / strict mode)
-    unless ($mode_strict) {
+    my $mode_glob  = muffin_iget_pragma('mode-glob');
+    my $mode_icase = muffin_iget_pragma('mode-icase');
+    unless ( muffin_iget_pragma('mode-strict') ) {
         @patterns
             = map {
                 my $pattern = $_;
@@ -2876,14 +3052,21 @@ sub macro_pattern_matching {
               } @patterns;
     }
 
+    # Save actual bindings
+    my %save_binding_bloc = (
+        (muffin_exists_var('a') ? (a => muffin_getval('a')) : ()),
+        (muffin_exists_var('b') ? (b => muffin_getval('b')) : ()),
+    );
 
     # PATTERN MATCHING ENGINE
     # A matching cycle is considered for each element turn by turn,
     #   running all patterns against it.
+    my @matchers = ();
+    my @mcont    = ();
+    my @ccont    = ();
     my @final = ();
 
     foreach my $e (@elements) {
-
         my @cycle_results = ();
 
         foreach my $pattern (@patterns) {
@@ -2893,6 +3076,7 @@ sub macro_pattern_matching {
             my @results;
 
             # Core pattern matching : custom or system
+            @matchers = muffin_lget_pragma('match-with');
             if (@matchers) {
                 # $e        available as $(a) or $(_1)
                 # $pattern  available as $(b) or $(_2)
@@ -2906,27 +3090,28 @@ sub macro_pattern_matching {
             }
             else {
                 @results
-                    = $mode_strict
+                    =   muffin_iget_pragma('mode-strict') 
                         ? ( $e eq $pattern ? $e : () )
-                        : ( $match_all ? $e =~ m/$pattern/sg : $e =~ m/$pattern/s )
+                        : ( muffin_iget_pragma('match-all') ? $e =~ m/$pattern/sg : $e =~ m/$pattern/s )
                         ;
             }
             @results = (@results > 0 ? 1 : 0)
-                if $return_bool;
+                if muffin_iget_pragma('return-bool');
             @results = $e
-                if @results && $return_element;
+                if @results && muffin_iget_pragma('return-element');
 
             # Apply Match Continuation on @results
             # - element in $(a)
             # - pattern in $(b)
             # - matching results in $(@)
+            @mcont = muffin_lget_pragma('m-continuation');
             if (@results && @mcont) {
                 my @args = @results;
-                my $foo;
+                my $f;
                 @results 
                     = map { 
-                        $foo = $_;
-                        @{ apply_func(\@client_params, $foo, 1, @args) }
+                        $f = $_;
+                        @{ apply_func(\@client_params, $f, 1, @args) }
                       } @mcont;
             }
 
@@ -2937,31 +3122,31 @@ sub macro_pattern_matching {
         # - element in $(a)
         # - pattern in $(b)
         # - matching results in $(@)
+        @ccont = muffin_lget_pragma('c-continuation');
         if (@cycle_results && @ccont) {
             my @args = @cycle_results;
-            my $foo;
+            my $f;
             @cycle_results 
                 = map { 
-                    $foo = $_;
-                    @{ apply_func(\@client_params, $foo, 1, @args) }
+                    $f = $_;
+                    @{ apply_func(\@client_params, $f, 1, @args) }
                   } @ccont;
         }
 
         # Results Presentation
-        if ($mode_matrix) {
+        if ( muffin_iget_pragma('mode-matrix') ) {
             if (@cycle_results) {
                 my $final;
 
-                if ($join_flag) {
-                    local $" = $join_with;
+                if ( muffin_iget_pragma('join') ) {
+                    local $"  = muffin_iget_pragma('join-with');
+                    my $quote = muffin_iget_pragma('quote');
                     $final 
-                        = [ 
-                            sprintf('%s%s%s', 
-                                $quote_flag ? $quote_left : '',
+                        = sprintf('%s%s%s', 
+                                $quote ? muffin_iget_pragma('quote-left')  : '',
                                 "@cycle_results",
-                                $quote_flag ? $quote_right : '',
-                            )
-                        ];
+                                $quote ? muffin_iget_pragma('quote-right') : '',
+                          )
                 }
                 else {
                     $final = \@cycle_results;
@@ -2976,9 +3161,10 @@ sub macro_pattern_matching {
 
         # Stop here if match first
         if ( @cycle_results ) {
-            goto GAMEOVER if $match_first;
-            if ($match_n) {
-                $match_n--;
+            goto GAMEOVER 
+                if muffin_iget_pragma('match-first');
+            if ( my $match_n = muffin_iget_pragma('match-n') ) {
+                muffin_iset_pragma('match-n', --$match_n);
                 goto GAMEOVER if $match_n == 0;
             }
         }
@@ -2991,12 +3177,13 @@ sub macro_pattern_matching {
     }
   
     # Aggregate results
-    if ($join_flag && !$mode_matrix) {
-        local $" = $join_with;
+    if ( muffin_iget_pragma('join') ) {
+        local $"  = muffin_iget_pragma('join-with');
+        my $quote = muffin_iget_pragma('quote');
         @final = sprintf('%s%s%s', 
-                          $quote_flag ? $quote_left : '',
+                          $quote ? muffin_iget_pragma('quote-left')  : '',
                           "@final",
-                          $quote_flag ? $quote_right : '',
+                          $quote ? muffin_iget_pragma('quote-right') : '',
         );
     }
     
