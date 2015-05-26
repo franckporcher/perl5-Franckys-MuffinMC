@@ -2066,6 +2066,20 @@ sub muffin_isa_iterator {
 #
 # my $final = eval_string($tokenstring);
 #
+# PRAGMAS:
+#   :cross-product  <bool>  (true by default)
+#   :quote          <bool>  faux par défaut
+#   :quote-with     value   (double quote by default) Defines the left/right quotes. Implies :quote
+#   :quote-left     value   (double quote by default). Implies :quote
+#   :quote-right    value   (double quote by default). Implies :quote
+#
+#   :join-multiple-with     value   (space string by default)
+#   :quote-multiple         <bool>  faux par défaut
+#   :quote-multiple-with    value   (double quote by default) Defines the left/right quotes. Implies :quote
+#   :quote-multiple-left    value   (double quote by default). Implies :quote
+#   :quote-multiple-right   value   (double quote by default). Implies :quote
+#
+#
 # Cardinalité: 1 -> N x M x P x... (Produit cartésien)
 #
 # 1. La chaine est décomposée en ses composants propres:
@@ -2098,12 +2112,36 @@ sub eval_string {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
+    # Pragmas
+    set_default_pragma('cross-product', 1);
+    set_default_pragma('quote',
+                        0,
+                        undef,
+                        exists($pragma->{'quote-left'})
+                            || exists($pragma->{'quote-right'})
+                            || exists($pragma->{'quote-with'}),
+                        1);
+    set_default_pragma('quote-with' , '"');
+    set_default_pragma('quote-left' , muffin_iget_pragma('quote-with'));
+    set_default_pragma('quote-right', muffin_iget_pragma('quote-with'));
+
+    set_default_pragma('join-multiple-with', ' ');
+    set_default_pragma('quote-multiple',
+                        0,
+                        undef,
+                        exists($pragma->{'quote-multiple-left'})
+                            || exists($pragma->{'quote-multiple-right'})
+                            || exists($pragma->{'quote-multiple-with'}),
+                        1);
+    set_default_pragma('quote-multiple-with' , '"');
+    set_default_pragma('quote-multiple-left' , muffin_iget_pragma('quote-multiple-with'));
+    set_default_pragma('quote-multiple-right', muffin_iget_pragma('quote-multiple-with'));
+
     # Split the string into subset-values, each of one susceptible to be
     # multi-valued, for further recombination.
     # A substring makes a 1-value set.
     # A token is expanded as usual.
     my @sets_of_values =  ();
-
     pos($tokenstring) = 0;     # Just to play safe, reset \G to 0
     while ( $tokenstring =~ m/$REGEX{eval_string_token}/g ) {
         my $substring = $+{value};
@@ -2121,8 +2159,37 @@ sub eval_string {
         }
     }
 
-    my @values = get_produit_cartesien(@sets_of_values);
-    my $final = \@values;
+    my (@final, $final, $part);
+    if ( muffin_iget_pragma('cross-product') ) {
+        @final = get_produit_cartesien(@sets_of_values);
+    }
+    else {
+        $final = '';
+
+        foreach $part (@sets_of_values) {
+            if ( @$part > 1 ) {
+                local $" = muffin_iget_pragma('join-multiple-with');
+                $final
+                    = sprintf( '%s%s%s%s', 
+                                $final,
+                                muffin_iget_pragma('quote-multiple') ? muffin_iget_pragma('quote-multiple-left') : '',
+                                "@{$part}",
+                                muffin_iget_pragma('quote-multiple') ? muffin_iget_pragma('quote-multiple-right') : '',
+                      );
+            }
+            else {
+                $final = $final . $part->[0];
+            }
+        }
+        @final = ($final);
+    }
+
+    if ( muffin_iget_pragma('quote') ) {
+        my $quote_left  = muffin_iget_pragma('quote-left');
+        my $quote_right = muffin_iget_pragma('quote-right');
+        @final = map { "${quote_left}${_}${quote_right}" } @final;
+    }
+    $final = \@final;
 
     traceout($final);
     return $final ;
@@ -2363,6 +2430,9 @@ sub apply_func {
 #   At any level, * means : All elements to become
 #   new sublists to search for
 #
+#  PRAGMAS
+#  :matrix-mode     <bool>  (false by default)
+#
 #
 # Sémantique:
 #
@@ -2394,6 +2464,9 @@ sub macro_access_list {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
 
+    #PRAGMAS
+    set_default_pragma('matrix-mode', 0);
+
     # Split between list (1st composant) and indexes (the remaining # composants)
     my ($toklist, @indices) = muffin_split_tokenstring($tokenstring);
 
@@ -2406,41 +2479,13 @@ sub macro_access_list {
     # First argument must provide the list -- even reduced to 1 element
     #trace( sprintf('LISTE: %s', $toklist ) );
     #trace("INDEXES: ", @indices);
-  REDO:
     if ( is_token($toklist) ) {
         $list = muffin_eval_token($toklist, @client_params);
     }
     elsif ( muffin_exists_var($toklist) ) {
         $list = muffin_getval($toklist, @client_params);
     }
-    elsif ( ! $is_matrix_op && $toklist eq '[' ) {
-        $is_matrix_op = 1;
-
-        # Shift operands and start anew
-        ($toklist, @indices) = @indices;
-        goto REDO;
-    }
     
-        # Look for '[' matrix operator 
-    if ( ! $is_matrix_op 
-         && defined $list
-         && (ref $list) eq 'ARRAY'
-         && @$list 
-         && $list->[0] eq '['
-    ) {
-        $is_matrix_op = 1;
-
-        if ( @$list > 1 ) {
-            # Simply shift the list
-            shift @$list;
-        }
-        else {
-            # Shift operands and start anew
-            ($toklist, @indices) = @indices;
-            goto REDO;
-        }
-    }
-
     if ( defined $list
          && (ref $list) eq 'ARRAY'
     ) { # Found a real list to apply indexes to
@@ -2450,7 +2495,7 @@ sub macro_access_list {
         }
 
         # Matrix access
-        elsif ( $is_matrix_op ) {
+        elsif ( muffin_iget_pragma('matrix-mode') ) {
             my @master = ( $list );
 
             foreach my $token ( @indices ) {
@@ -2927,7 +2972,7 @@ sub macro_pragma {
 #   :nospace        <bool>  faux par défaut. Vrai => join-with ''
 #   :join-with      value   (space string by default. Implies join true)
 #
-#   :mode-matrix    <bool> (faux)   only works for match-all, where each match
+#   :vactor-mode    <bool> (faux)   only works for match-all, where each match
 #                                   is presented in its own subcell
 #
 sub macro_pattern_matching {
@@ -3002,7 +3047,7 @@ sub macro_pattern_matching {
                         1);
     set_default_pragma('nospace'    , 0);
     set_default_pragma('join-with'  , muffin_iget_pragma('nospace') ? '' : ' '); # explicitely overlaps nospace setting
-    set_default_pragma('mode-matrix',
+    set_default_pragma('vactor-mode',
                         0,
                         undef,
                         muffin_iget_pragma('match-first'),
@@ -3134,7 +3179,7 @@ sub macro_pattern_matching {
         }
 
         # Results Presentation
-        if ( muffin_iget_pragma('mode-matrix') ) {
+        if ( muffin_iget_pragma('vactor-mode') ) {
             if (@cycle_results) {
                 my $final;
 
