@@ -59,7 +59,7 @@ should('test 15',   '#(map "a b" 1 2 3 4 5)',                       ['a b', 'a b
 should('test 16',   q{#(map '("a b") 1 2 3 4 5)},                   ['a b', 'a b', 'a b', 'a b', 'a b']);
 
 should('test 17',   '=(foo a b)',                                   ['a', 'b']);
-should('test 18',   '#(map $(foo) 1 2 3 4 5)',                      ['a','a','a','a','a','b','b','b','b','b']);
+should('test 18',   '#(map $(foo) 1 2 3 4 5)',                      ['a','b','a','b','a','b','a','b','a','b']);
 should('test 19',   q{#(map '($(foo)) 1 2 3 4 5)},                  ['a', 'b', 'a', 'b', 'a', 'b', 'a', 'b', 'a', 'b']);
 muffin_eval(        q{=(foo '("a b"))});
 should('test 20',   '#(map $(foo) 1 2 3 4 5)',                      ['a b', 'a b', 'a b', 'a b', 'a b']);

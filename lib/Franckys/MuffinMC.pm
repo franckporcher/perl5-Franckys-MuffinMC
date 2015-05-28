@@ -745,8 +745,6 @@ my %FUNCS = (
     filter  => \&_f_grep,
     zip     => \&_f_zip,
     prog1   => \&_f_prog1,
-    prog2   => \&_f_prog2,
-    prog3   => \&_f_prog3,
     progn   => \&_f_progn,
     do      => \&_f_progn,
     eval    => \&_f_eval,
@@ -798,107 +796,166 @@ sub set_func {
 # Prototype : f( \@client_params, function_arg...)
 #----------------------------------------------------------------------------
 sub _f_add {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+    
     my $n = 0;
-    $n += $_ foreach map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    $n += $_ foreach @args;
+    
     return [ $n ];
 }
 
 sub _f_add1 {
-    my $client_params = shift;
-    my ($n) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n = 0 unless defined $n;
-    return [ $n + 1 ];
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    return [ map { $_ + 1 } @args ] 
 }
 
 sub _f_add2 {
-    my $client_params = shift;
-    my ($n) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n = 0 unless defined $n;
-    return [ $n + 2 ];
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    return [ map { $_ + 2 } @args ] 
 }
 
 
 sub _f_times {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
     my $n = 1;
-    $n *= $_ foreach map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    $n *= $_ foreach @args;
+
     return [ $n ];
 }
 
 sub _f_exp {
-    my $client_params = shift;
-    my ($n, @values) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n **= $_ foreach @values;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $n = shift @args;
     $n = 1 unless defined $n;
+
+    $n **= $_ foreach @args;
+
     return [ $n ];
 }
 
 sub _f_minus {
-    my $client_params = shift;
-    my ($n, @values) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n -= $_ foreach @values;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $n = shift @args;
     $n = 0 unless defined $n;
+    $n -= $_ foreach @args;
+
     return [ $n ];
 }
 
 sub _f_minus1 {
-    my $client_params = shift;
-    my ($n) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n = 0 unless defined $n;
-    return [ $n - 1 ];
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    return [ map { $_ - 1 } @args ] 
 }
 
 sub _f_minus2 {
-    my $client_params = shift;
-    my ($n) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n = 0 unless defined $n;
-    return [ $n - 2 ];
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    return [ map { $_ -2 } @args ] 
 }
 
 sub _f_divide {
-    my $client_params = shift;
-    my ($n, @values) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n /= $_ foreach @values;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $n = shift @args;
     $n = 1 unless defined $n;
+    $n /= $_ foreach @args;
+
     return [ $n ];
 }
 
 sub _f_div {
-    my $client_params = shift;
-    my ($n, @values) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n = int($n / $_) foreach @values;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $n = shift @args;
     $n = 1 unless defined $n;
+    $n = int($n / $_) foreach @args;
+
     return [ $n ];
 }
 
 sub _f_mod {
-    my $client_params = shift;
-    my ($n, @values) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $n %= $_ foreach @values;
-    $n = 0 unless defined $n;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $n = shift @args;
+    $n    = 0 unless defined $n;
+    $n %= $_ foreach @args;
+
     return [ $n ];
 }
 
+# (x MOTIF facteur...)
 sub _f_strtimes {
-    my $client_params = shift;
-    my ($s, @values) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    $s = '' unless defined $s;
-    $s x= $_ foreach @values;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $s = shift @args;
+    $s    = '' unless defined $s;
+    $s   x= $_ foreach @args;
+
     return [ $s ];
 }
 
 sub _f_stradd {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
     my $s = '';
-    $s .= $_ foreach map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    $s .= $_ foreach @args;
+
     return [ $s ];
 }
 
 sub _f_range {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
 
-    my ($min, $max) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my ($min, $max) = @args;
+
     my $final;
 
     if ( looks_like_number($min)
@@ -922,28 +979,40 @@ sub _f_range {
 }
 
 sub _f_cardinal {
-    my $client_params = shift;
-    my $n = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    return [ $n ];
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    return [ scalar @args ];
 }
 
 #  #(map FUNC list)
 sub _f_map {
-    my ($client_params, $func, @tokens,
-        ####
-        @funcs, @final, @args, $f) = @_;
+    my ($client_params, $evaled_flag, $func,  @arglist) = @_;
+    tracein($func, @arglist);
 
-    tracein($func, @tokens);
+    my (@funcs, @args, @final, $f) = @_;
 
-    @funcs = is_token($func) ? @{ muffin_eval_token($func, @$client_params) } : $func;
-    @args  = map { @{ muffin_eval_token($_, @$client_params) } } @tokens;
-    @final
-        = map { 
-            $f = $_;
-            map {
-                @{ apply_func($client_params, $f, 1, $_) }
-            } @args;
-        } @funcs;
+    if ($evaled_flag) {
+        @funcs = ($func);
+    }
+    else {
+        @funcs   = is_token($func) ? @{ muffin_eval_token($func, @$client_params) } : $func;
+        @arglist = map { @{ muffin_eval_token($_, @$client_params) } } @arglist;
+    }
+
+    @final   = ();
+    my $by   =  muffin_iget_pragma('by') || 1;
+
+    while ( @arglist ) {
+        @args = splice @arglist, 0, $by;
+
+        push @final, 
+             map {
+                @{ apply_func($client_params, $_, 1, @args) }
+             } @funcs;
+    }
 
     traceout(\@final);
     return(\@final);
@@ -951,29 +1020,37 @@ sub _f_map {
 
 #  #(grep FUNC list)
 sub _f_grep {
-    my ($client_params, $func, @tokens,
-        ####
-        @funcs, @final, @args, $f) = @_;
+    my ($client_params, $evaled_flag, $func, @arglist) = @_;
+    tracein($func, @arglist);
 
-    tracein($func, @tokens);
+    my (@funcs, @args, @final, $f) = @_;
 
-    @funcs = is_token($func) ? @{ muffin_eval_token($func, @$client_params) } : $func;
-    @args  = map { @{ muffin_eval_token($_, @$client_params) } } @tokens;
-    @final
-        = map { 
-            $f = $_;
-            map {
-                my $arg   = $_;
-                my $final = apply_func($client_params, $f, 1, $arg);
-                ( $final
+    if ($evaled_flag) {
+        @funcs = ($func);
+    }
+    else {
+        @funcs    = is_token($func) ? @{ muffin_eval_token($func, @$client_params) } : $func;
+        @arglist  = map { @{ muffin_eval_token($_, @$client_params) } } @arglist;
+    }
+
+    @final    = ();
+    my $by    =  muffin_iget_pragma('by') || 1;
+
+    while ( @arglist ) {
+        @args = splice @arglist, 0, $by;
+
+        push @final,
+             map {
+                my $final = apply_func($client_params, $_, 1, @args);
+                (  $final
                    && ( (@$final > 1)
                         || ( @$final == 1 && $final->[0] ) 
                       )
                 )
-                ? $arg
+                ? @args
                 : ()
-            } @args;
-        } @funcs;
+             } @funcs;
+    }
 
     traceout(\@final);
     return(\@final);
@@ -983,15 +1060,14 @@ sub _f_grep {
 # MuffinMC meta evaluation
 #(eval muffinMC-expr)
 sub _f_eval {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
     &tracein;
 
-    my @forms
-        =  map { 
-                @{ muffin_eval_token($_, @$client_params) } 
-           } @_;
-
-    my $final = muffin_eval( "@forms" );
+    my $final = muffin_eval( "@args" );
 
     traceout($final);
     return $final;
@@ -999,13 +1075,14 @@ sub _f_eval {
 
 #(progn form...)
 sub _f_progn {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
     &tracein;
 
     # Evaluate progn tokens
     my $final = [];
     ($final = muffin_eval_token($_, @$client_params))
-        foreach @_;
+        foreach @args;
 
     traceout($final);
     return $final;
@@ -1013,7 +1090,7 @@ sub _f_progn {
 
 #(prog1 form...)
 sub _f_prog1 {
-    my ($client_params, $expr, @exprs) = @_;
+    my ($client_params, $evaled_flag,  $expr, @exprs) = @_;
 
     # Evaluate first expr
     my $final = [];
@@ -1028,154 +1105,171 @@ sub _f_prog1 {
     return $final;
 }
 
-#(prog2 form...)
-sub _f_prog2 {
-    my $client_params = shift;
-
-    return [] unless @_;
-    muffin_eval_token((shift @_), @$client_params);
-
-    return [] unless @_;
-    my $final =  muffin_eval_token((shift @_), @$client_params);
-
-    # Evaluate progn tokens
-    muffin_eval_token($_, @$client_params)
-        foreach @_;
-
-    traceout($final);
-    return $final;
-}
-
-#(prog3 form...)
-sub _f_prog3 {
-    my $client_params = shift;
-
-    return [] unless @_;
-    muffin_eval_token((shift @_), @$client_params);
-
-    return [] unless @_;
-    muffin_eval_token((shift @_), @$client_params);
-
-    return [] unless @_;
-    my $final =  muffin_eval_token((shift @_), @$client_params);
-
-    # Evaluate progn tokens
-    muffin_eval_token($_, @$client_params)
-        foreach @_;
-
-    traceout($final);
-    return $final;
-}
-
-    #grep    => \&_f_grep,
-    #zip     => \&_f_zip,
-
-#(== a b)
+#(== a b ...)
 sub _f_eq {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a == $b)
-        : ($a eq $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $final = 1;
+
+    (
+      $final
+        &= (
+            looks_like_number($a) || looks_like_number($b)
+            ? ($a == $b)
+            : ($a eq $b)
+        )
+    )    while ($a, $b) = splice @args,0,2;
 
     return [$final];
 }
 
 #(!= a b)
 sub _f_ne {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a != $b)
-        : ($a ne $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $final = 1;
+
+    (
+      $final
+        &= (
+            looks_like_number($a) || looks_like_number($b)
+            ? ($a != $b)
+            : ($a ne $b)
+        )
+    ) while ($a, $b) = splice @args,0,2;
 
     return [$final];
 }
 
 #(< a b)
 sub _f_lt {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a < $b)
-        : ($a lt $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $final = 1;
+
+    (
+      $final
+        &= (
+            looks_like_number($a) || looks_like_number($b)
+            ? ($a < $b)
+            : ($a lt $b)
+        )
+    )    while ($a, $b) = splice @args,0,2;
 
     return [$final];
 }
 
 #(<= a b)
 sub _f_le {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a <= $b)
-        : ($a le $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $final = 1;
+
+    (
+      $final
+        &= (
+            looks_like_number($a) || looks_like_number($b)
+            ? ($a <= $b)
+            : ($a le $b)
+        )
+    )    while ($a, $b) = splice @args,0,2;
 
     return [$final];
 }
 
 #(> a b)
 sub _f_gt {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a > $b)
-        : ($a gt $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $final = 1;
+
+    (
+      $final
+        &= (
+            looks_like_number($a) || looks_like_number($b)
+            ? ($a > $b)
+            : ($a gt $b)
+        )
+    )    while ($a, $b) = splice @args,0,2;
 
     return [$final];
 }
 
 #(>= a b)
 sub _f_ge {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a >= $b)
-        : ($a ge $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my $final = 1;
+
+    (
+      $final
+        &= (
+            looks_like_number($a) || looks_like_number($b)
+            ? ($a >= $b)
+            : ($a ge $b)
+        )
+    )    while ($a, $b) = splice @args,0,2;
 
     return [$final];
 }
 
 #(<=> a b)
 sub _f_cmp {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    my $final 
-        = looks_like_number($a) || looks_like_number($b)
-        ? ($a <=> $b)
-        : ($a cmp $b)
-        ;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
 
-    return [$final];
+    my @final = ();
+
+    (
+        push @final,
+             (
+                looks_like_number($a) || looks_like_number($b)
+                ? ($a <=> $b)
+                : ($a cmp $b)
+             )
+    )  while ($a, $b) = splice @args,0,2;
+
+    return \@final;
 }
 
 #(<?> a b lt_bloc eq_bloc gt_bloc)
 sub _f_progcmp {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args, $a, $b) = @_;
 
-    my ($a, $b) = @{ muffin_eval_token(shift, @$client_params) };
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
 
-    unless( defined $b ) {
-        ($b) = @{ muffin_eval_token(shift, @$client_params) };
+    if ( $evaled_flag ) {
+        ($a, $b, @args) = @args;
+    }
+    else {
+        ($a, $b) = @{ muffin_eval_token(shift @args, @$client_params) };
+
+        unless ( defined $b ) {
+            my @rest = @{ muffin_eval_token(shift @args, @$client_params) };
+            $b = shift @rest;
+            unshift @args, @rest;
+        }
     }
 
     my $cmp 
@@ -1184,7 +1278,7 @@ sub _f_progcmp {
         : ($a cmp $b)
         ;
 
-    my $bloc_code = $_[$cmp + 1];
+    my $bloc_code = $args[$cmp + 1];
 
     my $final 
         = defined $bloc_code
@@ -1197,19 +1291,25 @@ sub _f_progcmp {
 
 #(say args...)
 sub _f_say {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
 
-    my @final = map { @{ muffin_eval_token($_, @$client_params) } } @_;
-    say $_ foreach @final;
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
 
-    return \@final;
+    say $_ foreach @args;
+
+    return \@args;
 }
 
 # #(element x liste)
 # retourne l'indice (>0) dans la liste, ou 0
 sub _f_element {
-    my $client_params = shift;
-    my ($e, @l)       = map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my ($e, @l)       = @args;
     my $is_number     = looks_like_number($e);
 
     my $i = 1;
@@ -1229,16 +1329,17 @@ sub _f_element {
 # retourne 1 ou 0
 sub _f_not_element {
     my $final = &_f_element;
-    return [ $final->[0] ? 0 : 1 ];
+    return [ ! $final->[0] ];
 }
 
 # #(not x)
 sub _f_not {
-    my $client_params = shift;
-    my @final
-        = map {
-            $_ ? 0 : 1;
-        } map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
+
+    my @final = map { !$_ } @args;
     return \@final;
 }
 
@@ -1253,10 +1354,11 @@ sub _f_not {
 # Retourner alors la valeur associée
 #
 sub _f_assoc {
-    my ($client_params, $token_key, @token_alist) = @_;
+    my ($client_params, $evaled_flag, $key, @alist) = @_;
 
-    my @keys  = @{ muffin_eval_token($token_key, @$client_params) };
-    my @alist = map { @{ muffin_eval_token($_, @$client_params) } } @token_alist;
+    my @keys  = $evaled_flag ? $key : @{ muffin_eval_token($key, @$client_params) };
+    @alist = (map { @{ muffin_eval_token($_, @$client_params) } } @alist)
+        unless $evaled_flag;
 
     return _f_assoc_common(\@keys, \@alist);
 }
@@ -1274,15 +1376,17 @@ sub _f_assoc {
 # Retourner alors la valeur associée
 #
 sub _f_assoc_split {
-    my ($client_params, $token_key, @token_alist) = @_;
+    my ($client_params, $evaled_flag, $key, @alist) = @_;
 
     my @keys
-        = map { split /$REGEX{spaces}/s
-          } @{ muffin_eval_token($token_key, @$client_params) };
+        = $evaled_flag
+            ? (split /$REGEX{spaces}/s, $key)
+            : map { 
+                    split /$REGEX{spaces}/s
+              } @{ muffin_eval_token($key, @$client_params) };
 
-    my @alist
-        = map { @{ muffin_eval_token($_, @$client_params) } 
-          } @token_alist;
+    @alist = (map { @{ muffin_eval_token($_, @$client_params) } } @alist)
+        unless $evaled_flag;
 
     return _f_assoc_common(\@keys, \@alist);
 }
@@ -1323,15 +1427,17 @@ sub _f_assoc_common {
 # => retourne un code ean13 correct, avec le check digit set (13ième digit)
 #
 sub _f_ean13 {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
 
     require Business::Barcode::EAN13;
 
     # value,pos,ndigits,...
     my @ean13_buffer = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-    my @l = map { @{ muffin_eval_token($_, @$client_params) } } @_;
 
-    return _ean13_common(\@ean13_buffer, @l);
+    return _ean13_common(\@ean13_buffer, @args);
 }
 
 ## 
@@ -1341,12 +1447,15 @@ sub _f_ean13 {
 # et retourne un code ean13 correct, avec le check digit set (13ième digit).
 #
 sub _f_rean13 {
-    my $client_params = shift;
+    my ($client_params, $evaled_flag, @args) = @_;
+
+    @args = map { @{ muffin_eval_token($_, @$client_params) } } @args
+        unless $evaled_flag;
 
     require Business::Barcode::EAN13;
 
     # value,pos,ndigits,...
-    my ($ean13, @l) = map { @{ muffin_eval_token($_, @$client_params) } } @_;
+    my $ean13 = shift @args;
 
     # Compute the initial ean13 buffer
     my @ean13_buffer = split //, $ean13;
@@ -1355,7 +1464,7 @@ sub _f_rean13 {
     pop @ean13_buffer;
 
     # Compute the new ean13
-    return _ean13_common(\@ean13_buffer, @l);
+    return _ean13_common(\@ean13_buffer, @args);
 }
 
 sub _ean13_common {
@@ -2337,9 +2446,15 @@ sub macro_split_var {
 #
 # my $final = macro_eval_func($tokenstring)
 #
+# PRAGMAS:
+#   :by N   (default 1)
+#
 sub macro_eval_func {
     my ($pragma, $tokenstring, @client_params) = @_;
     tracein($tokenstring);
+
+    # Pragmas
+    set_default_pragma('by', 1);
 
     # 1. Split the token into operator and operands
     my ($func, @fargs, $f, $final) =  muffin_split_tokenstring($tokenstring);
@@ -2374,9 +2489,8 @@ sub apply_func {
                 $final 
                     = $f->(
                         $client_params,
-                        $args_already_evaled 
-                            ? map {sprintf('"%s"', $_)} @fargs  # Protect args from evaluation
-                            : @fargs
+                        $args_already_evaled,
+                        @fargs
                       );
             }
         ) {
