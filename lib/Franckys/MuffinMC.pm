@@ -629,16 +629,24 @@ sub muffin_dump_vars :Export(:DEFAULT) {
     my $client_params = shift;
     &tracein;
 
+    my ($evaled_flag, @args) = @_;
+
     my @final;
 
-    if (@_) {
+    if (@args) {
         my @patterns
             = map {
                 s/\*/([^[:space:]]*)/sg;
                 qr/$_/si
-              } map { 
-                    @{ muffin_eval_token($_, @$client_params) } 
-              } @_;
+              } (
+                    $evaled_flag
+                    ? @args
+                    : (
+                        map { 
+                            @{ muffin_eval_token($_, @$client_params) } 
+                        } @args
+                      )
+              );
 
         foreach my $var ( keys %MUFFIN_VARS ) {
             foreach my $p ( @patterns ) {
@@ -693,7 +701,7 @@ sub muffin_reset_vars :Export(:DEFAULT) {
     %MUFFIN_VARS  = (
         self    => [],
         '@'     => [],
-        '#'     => [ 0 ],
+        '#'     => [0],
         NIL     => [],
         nil     => [],
         TRUE    => [1],
@@ -712,6 +720,8 @@ sub muffin_reset_vars :Export(:DEFAULT) {
         lf      => ["\n"],
         CR      => ["\r"],
         cr      => ["\r"],
+        ZERO    => [0],
+        0       => [0],
     );
     return muffin_dump_vars();
 }
